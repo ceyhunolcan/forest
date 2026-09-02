@@ -11,8 +11,9 @@ import pandas as pd
 import pytest
 
 from forest.constants import Frequency
-from forest.oak.circadian_rhythms import (compute_enmo_intervals, cosinor, interdaily_stability,
-    intradaily_variability, compute_rhythm_metrics, run)
+from forest.oak.circadian_rhythms import (compute_average_day_profile,
+    compute_enmo_intervals, compute_l5_m10, compute_rhythm_metrics, cosinor,
+    interdaily_stability, intradaily_variability, run)
 
 
 INTERVAL_SECONDS = 60
@@ -225,3 +226,56 @@ def test_intradaily_variability_normalizes_over_valid_pairs():
     gapped[4] = np.nan                         # drops a 0
     gapped[9] = np.nan                         # drops a 2 -> mean unchanged
     assert intradaily_variability(gapped) == pytest.approx(4.0)
+
+
+def test_average_day_profile_leaves_unobserved_positions_nan():
+    """An unobserved clock position must stay NaN in the profile.
+
+    The profile used to be filled in with the mean of the observed positions,
+    which made a part of the day nobody was recorded during look as active as
+    the rest and pulled L5 and the relative amplitude with it.
+    """
+    quiet_then_active = np.concatenate([np.full(8, 1.0), np.full(16, 10.0)])
+    gappy = quiet_then_active.copy()
+    gappy[3] = np.nan
+
+    profile = compute_average_day_profile(gappy, 24)
+    assert np.isnan(profile[3])
+    assert int(np.isnan(profile).sum()) == 1
+
+
+def test_l5_m10_skips_windows_that_overlap_a_gap():
+    """L5 and M10 come only from windows where every position was observed.
+
+    With hour 3 missing, every 5-hour window that covers it is undefined, so
+    the earliest complete quiet window starts at hour 4 and has to reach into
+    the active part of the day: four quiet hours and one active hour give
+    (1 + 1 + 1 + 1 + 10) / 5 = 2.8. Reporting 1.0 here would mean reading a
+    value off a position that was never recorded.
+    """
+    quiet_then_active = np.concatenate([np.full(8, 1.0), np.full(16, 10.0)])
+
+    complete = compute_l5_m10(quiet_then_active, 24)
+    assert complete.l5 == pytest.approx(1.0)
+    assert complete.m10 == pytest.approx(10.0)
+    assert complete.l5_onset_hours == pytest.approx(0.0)
+
+    gappy = quiet_then_active.copy()
+    gappy[3] = np.nan
+    windows = compute_l5_m10(gappy, 24)
+    assert windows.l5 == pytest.approx(2.8)
+    assert windows.l5_onset_hours == pytest.approx(4.0)
+    assert windows.m10 == pytest.approx(10.0)
+
+
+def test_l5_m10_undefined_when_no_window_is_complete():
+    """Every metric is NaN when the gaps leave no fully observed window."""
+    quiet_then_active = np.concatenate([np.full(8, 1.0), np.full(16, 10.0)])
+    scattered_gaps = quiet_then_active.copy()
+    scattered_gaps[::5] = np.nan
+
+    windows = compute_l5_m10(scattered_gaps, 24)
+    assert np.isnan(windows.l5)
+    assert np.isnan(windows.m10)
+    assert np.isnan(windows.l5_onset_hours)
+    assert np.isnan(windows.m10_onset_hours)

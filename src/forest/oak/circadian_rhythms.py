@@ -9,7 +9,7 @@ patterning) question. Activity is summarised per fixed interval as ENMO -- the E
 acceleration vector minus one gravitational unit, clipped at zero -- which is the standard
 actigraphy proxy for movement intensity.
 
-The public entry point ``run`` mirrors ``forest.oak.base.run``. It writes a recording-level
+The public entry point ``run`` mirrors ``forest.oak.runners.run``. It writes a recording-level
 ``rar_summary.csv`` (one row per participant) and, when a daily frequency is requested,
 per-participant ``<backend_id>_rar_daily.csv`` files holding the day-decomposable metrics.
 
@@ -118,18 +118,32 @@ def intradaily_variability(activity: np.ndarray) -> float:
 
 
 def compute_average_day_profile(activity: np.ndarray, intervals_per_day: int) -> np.ndarray:
-    """Mean activity at each interval-of-day, empty positions mean-filled."""
+    """Average one day's shape by folding every day onto the same clock grid.
+
+    Each position in the returned profile is the mean activity at that point in
+    the day across all the days in the recording. A position with no data on
+    any day stays NaN rather than being filled in, because substituting an
+    average there would make an unobserved part of the day look as active as
+    the observed parts and would bias L5, M10 and the relative amplitude that
+    are computed from this profile.
+
+    Args:
+        activity: Per-interval activity vector.
+        intervals_per_day: Number of intervals in a 24 h day.
+
+    Returns:
+        Array of length intervals_per_day, NaN wherever a clock position was
+        never observed.
+    """
     arr = as_float_array(activity)
     period = int(intervals_per_day)
     pos = np.arange(arr.size) % period
-    profile = np.array([
+
+    return np.array([
         np.nanmean(arr[pos == h]) if np.any(~np.isnan(arr[pos == h]))
         else np.nan
         for h in range(period)
     ])
-    if np.any(np.isnan(profile)):
-        profile = np.where(np.isnan(profile), np.nanmean(profile), profile)
-    return profile
 
 
 def compute_circular_window_mean(
@@ -187,8 +201,22 @@ def compute_l5_m10(activity: np.ndarray, intervals_per_day: int) -> ActivityWind
     means_10 = compute_circular_window_mean(
         profile, round(M10_WINDOW_HOURS * intervals_per_hour)
     )
-    idx_5 = int(np.argmin(means_5))
-    idx_10 = int(np.argmax(means_10))
+    # A window that overlaps an unobserved clock position comes out NaN from the
+    # convolution above, so only fully observed windows are candidates here. If
+    # the recording is gappy enough that no window is complete, every metric is
+    # left undefined rather than reported from partial coverage.
+    if np.all(np.isnan(means_5)) or np.all(np.isnan(means_10)):
+        return ActivityWindows(
+            l5=float("nan"),
+            m10=float("nan"),
+            l5_onset_hours=float("nan"),
+            m10_onset_hours=float("nan"),
+        )
+
+    # nanargmin/nanargmax rather than argmin/argmax: the plain versions would
+    # return the position of a NaN window instead of skipping it.
+    idx_5 = int(np.nanargmin(means_5))
+    idx_10 = int(np.nanargmax(means_10))
 
     return ActivityWindows(
         l5=float(means_5[idx_5]),
