@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from forest.constants import Frequency
-from forest.oak.circadian_rhythms import (compute_average_day_profile,
+from forest.oak.circadian_rhythms import (compute_average_day_profile, count_valid_days,
     compute_enmo_intervals, compute_l5_m10, compute_rhythm_metrics, cosinor,
     interdaily_stability, intradaily_variability, run)
 
@@ -279,3 +279,42 @@ def test_l5_m10_undefined_when_no_window_is_complete():
     assert np.isnan(windows.m10)
     assert np.isnan(windows.l5_onset_hours)
     assert np.isnan(windows.m10_onset_hours)
+
+
+def test_count_valid_days_requires_each_day_to_qualify_on_its_own():
+    """Partial days must not add up to whole ones.
+
+    Six days recorded for twelve hours each used to count as three valid days,
+    because the old check totalled every observed interval in the recording
+    and divided by the length of a day. None of those six days is adequately
+    covered, so none of them should count.
+    """
+    intervals_per_day = INTERVALS_PER_DAY
+
+    six_half_days = np.full(6 * intervals_per_day, np.nan)
+    for day in range(6):
+        day_start = day * intervals_per_day
+        six_half_days[day_start:day_start + intervals_per_day // 2] = 1.0
+
+    # what the old check would have produced, for contrast
+    assert np.sum(~np.isnan(six_half_days)) / intervals_per_day == pytest.approx(3.0)
+    assert count_valid_days(six_half_days, intervals_per_day, 16.0) == 0
+
+    three_full_days = np.full(3 * intervals_per_day, 1.0)
+    assert count_valid_days(three_full_days, intervals_per_day, 16.0) == 3
+
+
+def test_count_valid_days_is_inclusive_at_the_threshold():
+    """A day with exactly the required hours counts; just under does not."""
+    intervals_per_day = INTERVALS_PER_DAY
+    minutes_in_sixteen_hours = 16 * 60
+
+    exactly_sixteen = np.full(3 * intervals_per_day, np.nan)
+    just_under = np.full(3 * intervals_per_day, np.nan)
+    for day in range(3):
+        day_start = day * intervals_per_day
+        exactly_sixteen[day_start:day_start + minutes_in_sixteen_hours] = 1.0
+        just_under[day_start:day_start + minutes_in_sixteen_hours - 1] = 1.0
+
+    assert count_valid_days(exactly_sixteen, intervals_per_day, 16.0) == 3
+    assert count_valid_days(just_under, intervals_per_day, 16.0) == 0

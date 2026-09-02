@@ -35,7 +35,10 @@ from forest.utils import get_ids
 logger = logging.getLogger(__name__)
 
 ACCELEROMETER_DIR = "accelerometer"
-MIN_DAY_COVERAGE = 0.5  # fraction of a day required to emit a daily row
+# Coverage a single day needs before the daily file reports metrics for it. This is
+# deliberately looser than run()'s min_valid_hours_per_day, which decides whether a
+# participant's recording-level summary is reported at all.
+MIN_DAY_COVERAGE = 0.5
 L5_WINDOW_HOURS = 5     # the "5" in L5: width of the least-active window
 M10_WINDOW_HOURS = 10   # the "10" in M10: width of the most-active window
 
@@ -518,6 +521,37 @@ def get_ids_with_accelerometer_data(study_folder: str) -> list[str]:
     )
 
 
+def count_valid_days(
+    values: np.ndarray, intervals_per_day: int, min_valid_hours_per_day: float
+) -> int:
+    """Count the days that individually have enough data to be usable.
+
+    A day counts only if that day on its own reaches the required number of
+    observed hours. Totalling the observed intervals across the whole
+    recording and dividing by a day's length would let several half-observed
+    days stand in for one whole one, which is not the same thing: six days at
+    twelve hours each would pass a three-day requirement without a single day
+    being well covered.
+
+    Args:
+        values: Per-interval activity on a whole number of day-aligned days.
+        intervals_per_day: Number of intervals in a 24 h day.
+        min_valid_hours_per_day: Hours a day needs before it counts.
+
+    Returns:
+        The number of days meeting the requirement.
+    """
+    n_days = values.size // intervals_per_day
+    if n_days == 0:
+        return 0
+
+    days = values[: n_days * intervals_per_day].reshape(n_days, intervals_per_day)
+    coverage_per_day = np.sum(~np.isnan(days), axis=1) / intervals_per_day
+    required_coverage = float(min_valid_hours_per_day) / 24.0
+
+    return int(np.sum(coverage_per_day >= required_coverage))
+
+
 def run(
     study_folder: str,
     output_folder: str,
@@ -529,6 +563,7 @@ def run(
     interval_seconds: int = 60,
     gravity: float = 1.0,
     min_valid_days: float = 3.0,
+    min_valid_hours_per_day: float = 16.0,
 ) -> pd.DataFrame:
     """Compute rest-activity rhythm summaries over a Beiwe study folder.
 
@@ -545,6 +580,12 @@ def run(
         interval_seconds: Interval length in seconds; must divide 86_400 evenly.
         gravity: Value of 1 g in the data's units (1.0 = data already in g).
         min_valid_days: Participants with fewer valid days are skipped.
+        min_valid_hours_per_day: Hours of data a single day needs before it
+            counts as one of those valid days. The default of 16 h follows the
+            usual wear-time convention in accelerometry studies, which ask for
+            at least 16 hours a day over at least three or four days. Lower it
+            for protocols with shorter expected wear, raise it if you want only
+            near-complete days to count.
 
     Returns:
         The recording-level summary DataFrame (also written to disk).
@@ -562,7 +603,7 @@ def run(
         if activity.empty:
             continue
         values, start = align_to_day_grid(activity, interval_seconds)
-        valid_days = np.sum(~np.isnan(values)) / intervals_per_day
+        valid_days = count_valid_days(values, intervals_per_day, min_valid_hours_per_day)
         if valid_days < min_valid_days:
             logger.warning(
                 "skipping %s: %.1f valid days (< %.1f)", backend_id, valid_days, min_valid_days
