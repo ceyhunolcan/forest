@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from os.path import isdir, join as pathjoin
 
 import numpy as np
@@ -35,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 ACCELEROMETER_DIR = "accelerometer"
 MIN_DAY_COVERAGE = 0.5  # fraction of a day required to emit a daily row
+L5_WINDOW_HOURS = 5     # the "5" in L5: width of the least-active window
+M10_WINDOW_HOURS = 10   # the "10" in M10: width of the most-active window
 
 
 def as_float_array(activity: np.ndarray) -> np.ndarray:
@@ -139,30 +142,60 @@ def compute_circular_window_mean(
     return np.convolve(extended, kernel, mode="valid")
 
 
-def l5_m10(activity: np.ndarray, intervals_per_day: int) -> dict:
-    """L5 and M10 on the average-day profile, with onset clock hours.
+@dataclass
+class ActivityWindows:
+    """Least- and most-active window averages from an average-day profile.
+
+    Args:
+        l5: mean activity over the least-active five hours of the average day
+        m10: mean activity over the most-active ten hours of the average day
+        l5_onset_hours: clock hour at which the least-active window starts
+        m10_onset_hours: clock hour at which the most-active window starts
+    """
+    l5: float
+    m10: float
+    l5_onset_hours: float
+    m10_onset_hours: float
+
+
+def compute_l5_m10(activity: np.ndarray, intervals_per_day: int) -> ActivityWindows:
+    """Compute L5 and M10 from the average-day profile, with their onset hours.
+
+    L5 and M10 are the conventional names for the mean activity over the
+    least-active five hours and the most-active ten hours of the average day.
+    A low L5 means the quietest part of the day is genuinely quiet, and a high
+    M10 means the busiest part is genuinely busy, so the two together describe
+    how far the day swings between rest and activity. The onset hours say when
+    each of those windows begins.
 
     Args:
         activity: Per-interval activity vector.
         intervals_per_day: Number of intervals in a 24 h day.
 
     Returns:
-        Dict with ``L5``, ``M10`` (mean activity levels) and their start
-        clock hours ``L5_onset_h`` and ``M10_onset_h``.
+        An ActivityWindows holding both window means and their onset hours.
     """
     period = int(intervals_per_day)
     intervals_per_hour = period / 24.0
     profile = compute_average_day_profile(activity, period)
-    means_5 = compute_circular_window_mean(profile, round(5 * intervals_per_hour))
-    means_10 = compute_circular_window_mean(profile, round(10 * intervals_per_hour))
+
+    # Each window is slid around the clock, so L5 is the minimum of every
+    # 5-hour window mean and M10 the maximum of every 10-hour window mean.
+    means_5 = compute_circular_window_mean(
+        profile, round(L5_WINDOW_HOURS * intervals_per_hour)
+    )
+    means_10 = compute_circular_window_mean(
+        profile, round(M10_WINDOW_HOURS * intervals_per_hour)
+    )
     idx_5 = int(np.argmin(means_5))
     idx_10 = int(np.argmax(means_10))
-    return {
-        "L5": float(means_5[idx_5]),
-        "M10": float(means_10[idx_10]),
-        "L5_onset_h": float(idx_5 / intervals_per_hour),
-        "M10_onset_h": float(idx_10 / intervals_per_hour),
-    }
+
+    return ActivityWindows(
+        l5=float(means_5[idx_5]),
+        m10=float(means_10[idx_10]),
+        l5_onset_hours=float(idx_5 / intervals_per_hour),
+        m10_onset_hours=float(idx_10 / intervals_per_hour),
+    )
 
 
 def relative_amplitude(l5_value: float, m10_value: float) -> float:
@@ -173,7 +206,28 @@ def relative_amplitude(l5_value: float, m10_value: float) -> float:
     return float((m10_value - l5_value) / denom)
 
 
-def cosinor(activity: np.ndarray, interval_seconds: float, period_hours: float = 24.0) -> dict:
+@dataclass
+class CosinorFit:
+    """Result of a single-component cosinor fit to an activity series.
+
+    Args:
+        mesor: rhythm-adjusted mean of the fitted curve
+        amplitude: half the peak-to-trough difference of the fitted curve
+        acrophase_hours: time of the fitted peak, in hours measured from the
+            start of the series; a local clock hour only when the series
+            starts at local midnight, as run() ensures
+        r_squared: fraction of the variance in the activity series explained
+            by the fit
+    """
+    mesor: float
+    amplitude: float
+    acrophase_hours: float
+    r_squared: float
+
+
+def cosinor(
+    activity: np.ndarray, interval_seconds: float, period_hours: float = 24.0
+) -> CosinorFit:
     """Single-component cosinor fit ``M + A cos(w t - phi)`` via OLS.
 
     The phase is measured from the first element of ``activity``: ``t = 0`` is
@@ -190,17 +244,10 @@ def cosinor(activity: np.ndarray, interval_seconds: float, period_hours: float =
         period_hours: Rhythm period; defaults to 24 h.
 
     Returns:
-        Dict with ``cosinor_mesor``, ``cosinor_amplitude``,
-        ``cosinor_acrophase_h`` (peak time in [0, period); a local clock hour
-        when the series starts at local midnight, as ``run()`` ensures) and
-        ``cosinor_r2``.
+        A CosinorFit. Every field is NaN when fewer than three intervals are
+        present, since the three-parameter fit is undefined below that.
     """
-    nan_result = {
-        "cosinor_mesor": float("nan"),
-        "cosinor_amplitude": float("nan"),
-        "cosinor_acrophase_h": float("nan"),
-        "cosinor_r2": float("nan"),
-    }
+    nan_result = CosinorFit(float("nan"), float("nan"), float("nan"), float("nan"))
     arr = as_float_array(activity)
     hours = np.arange(arr.size) * (float(interval_seconds) / 3600.0)
     valid = ~np.isnan(arr)
@@ -220,15 +267,20 @@ def cosinor(activity: np.ndarray, interval_seconds: float, period_hours: float =
     ss_res = float(np.sum(resid ** 2))
     ss_tot = float(np.sum((values - values.mean()) ** 2))
     r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-    return {
-        "cosinor_mesor": float(mesor),
-        "cosinor_amplitude": amplitude,
-        "cosinor_acrophase_h": acrophase,
-        "cosinor_r2": float(r_squared),
-    }
+    return CosinorFit(
+        mesor=float(mesor),
+        amplitude=amplitude,
+        acrophase_hours=acrophase,
+        r_squared=float(r_squared),
+    )
 
 
-def compute_rhythm_metrics(activity: np.ndarray, interval_seconds: float) -> dict:
+def compute_rhythm_metrics(
+    rows: list[dict[str, float | str]],
+    backend_id: str,
+    activity: np.ndarray,
+    interval_seconds: float,
+) -> None:
     """Full recording-level RAR metric set.
 
     Args:
@@ -244,21 +296,29 @@ def compute_rhythm_metrics(activity: np.ndarray, interval_seconds: float) -> dic
         raise ValueError(f"interval_seconds={interval_seconds} does not divide a 24 h day")
     intervals_per_day = int(intervals_per_day)
     arr = as_float_array(activity)
-    windows = l5_m10(arr, intervals_per_day)
-    metrics = {
+    windows = compute_l5_m10(arr, intervals_per_day)
+    fit = cosinor(arr, interval_seconds)
+
+    rows.append({
+        "backend_id": backend_id,
         "IS": interdaily_stability(arr, intervals_per_day),
         "IV": intradaily_variability(arr),
-        "RA": relative_amplitude(windows["L5"], windows["M10"]),
-        **windows,
-        **cosinor(arr, interval_seconds),
+        "RA": relative_amplitude(windows.l5, windows.m10),
+        "L5": windows.l5,
+        "M10": windows.m10,
+        "L5_onset_h": windows.l5_onset_hours,
+        "M10_onset_h": windows.m10_onset_hours,
+        "cosinor_mesor": fit.mesor,
+        "cosinor_amplitude": fit.amplitude,
+        "cosinor_acrophase_h": fit.acrophase_hours,
+        "cosinor_r2": fit.r_squared,
         "n_epochs": int(arr.size),
         "n_valid_epochs": int(np.sum(~np.isnan(arr))),
         "n_days": round(arr.size / intervals_per_day, 3),
-    }
-    return metrics
+    })
 
 
-def find_axis_columns(data_frame: pd.DataFrame) -> dict:
+def find_axis_columns(data_frame: pd.DataFrame) -> dict[str, str]:
     """Map lower-cased, stripped column names to their originals."""
     return {c.strip().lower(): c for c in data_frame.columns}
 
@@ -363,7 +423,7 @@ def load_participant_activity(
     if not isdir(acc_dir):
         return pd.Series(dtype=float)
     files = sorted(f for f in os.listdir(acc_dir) if f.endswith(".csv"))
-    frames = []
+    frames: list[pd.DataFrame] = []
     for filename in files:
         try:
             frames.append(read_accelerometer_file(pathjoin(acc_dir, filename)))
@@ -388,7 +448,7 @@ def compute_daily_metrics(
     """Per-day day-decomposable metrics (IS is recording-level only)."""
     intervals_per_day = SECONDS_IN_DAY // int(interval_seconds)
     n_days = values.size // intervals_per_day
-    rows = []
+    rows: list[dict[str, float | str]] = []
     for day in range(n_days):
         chunk = values[day * intervals_per_day:(day + 1) * intervals_per_day]
         date = (start + pd.Timedelta(days=day)).date().isoformat()
@@ -396,13 +456,21 @@ def compute_daily_metrics(
         if valid_fraction < MIN_DAY_COVERAGE:
             rows.append({"date": date, "n_valid_epochs": int(np.sum(~np.isnan(chunk)))})
             continue
-        windows = l5_m10(chunk, intervals_per_day)
-        row = {
+        windows = compute_l5_m10(chunk, intervals_per_day)
+        fit = cosinor(chunk, interval_seconds)
+
+        row: dict[str, float | str] = {
             "date": date,
             "IV": intradaily_variability(chunk),
-            "RA": relative_amplitude(windows["L5"], windows["M10"]),
-            **windows,
-            **cosinor(chunk, interval_seconds),
+            "RA": relative_amplitude(windows.l5, windows.m10),
+            "L5": windows.l5,
+            "M10": windows.m10,
+            "L5_onset_h": windows.l5_onset_hours,
+            "M10_onset_h": windows.m10_onset_hours,
+            "cosinor_mesor": fit.mesor,
+            "cosinor_amplitude": fit.amplitude,
+            "cosinor_acrophase_h": fit.acrophase_hours,
+            "cosinor_r2": fit.r_squared,
             "n_valid_epochs": int(np.sum(~np.isnan(chunk))),
         }
         rows.append(row)
@@ -429,7 +497,7 @@ def run(
     frequency: Frequency = Frequency.DAILY,
     time_start: str | None = None,
     time_end: str | None = None,
-    users: list | None = None,
+    users: list[str] | None = None,
     interval_seconds: int = 60,
     gravity: float = 1.0,
     min_valid_days: float = 3.0,
@@ -458,7 +526,7 @@ def run(
         users = get_ids_with_accelerometer_data(study_folder)
     intervals_per_day = SECONDS_IN_DAY // int(interval_seconds)
     write_daily = frequency in (Frequency.DAILY, Frequency.HOURLY_AND_DAILY)
-    rows = []
+    rows: list[dict[str, float | str]] = []
     for backend_id in users:
         activity = load_participant_activity(
             study_folder, backend_id, interval_seconds, tz_str, gravity, time_start, time_end
@@ -472,7 +540,7 @@ def run(
                 "skipping %s: %.1f valid days (< %.1f)", backend_id, valid_days, min_valid_days
             )
             continue
-        rows.append({"backend_id": backend_id, **compute_rhythm_metrics(values, interval_seconds)})
+        compute_rhythm_metrics(rows, backend_id, values, interval_seconds)
         if write_daily:
             daily = compute_daily_metrics(values, start, interval_seconds)
             daily.to_csv(pathjoin(output_folder, f"{backend_id}_rar_daily.csv"), index=False)

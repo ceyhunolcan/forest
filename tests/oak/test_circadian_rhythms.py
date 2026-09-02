@@ -33,7 +33,9 @@ def test_strong_rhythm_recovers_cosinor(rng):
     omega = 2 * np.pi / 24
     activity = 50 + 40 * np.cos(omega * (times - 14))
     activity = np.clip(activity + rng.normal(0, 2, times.size), 0, None)
-    metrics = compute_rhythm_metrics(activity, INTERVAL_SECONDS)
+    rows: list[dict[str, float | str]] = []
+    compute_rhythm_metrics(rows, "test", activity, INTERVAL_SECONDS)
+    metrics = rows[0]
     assert metrics["IS"] > 0.9
     assert metrics["IV"] < 0.05
     assert metrics["RA"] > 0.6
@@ -45,7 +47,9 @@ def test_strong_rhythm_recovers_cosinor(rng):
 
 def test_white_noise_is_at_floor(rng):
     activity = np.clip(rng.normal(50, 15, 7 * INTERVALS_PER_DAY), 0, None)
-    metrics = compute_rhythm_metrics(activity, INTERVAL_SECONDS)
+    rows: list[dict[str, float | str]] = []
+    compute_rhythm_metrics(rows, "test", activity, INTERVAL_SECONDS)
+    metrics = rows[0]
     assert abs(metrics["IS"] - 1.0 / 7.0) < 0.05
     assert abs(metrics["IV"] - 2.0) < 0.15
     assert metrics["RA"] < 0.1
@@ -61,7 +65,7 @@ def test_identical_days_give_is_one():
 def test_cosinor_flat_signal_is_degenerate():
     flat = np.full(3 * INTERVALS_PER_DAY, 5.0)
     result = cosinor(flat, INTERVAL_SECONDS)
-    assert result["cosinor_amplitude"] < 1e-6
+    assert result.amplitude < 1e-6
 
 
 def test_intradaily_variability_needs_two_points():
