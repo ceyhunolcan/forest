@@ -71,6 +71,8 @@ def interdaily_stability(activity: np.ndarray, intervals_per_day: int) -> float:
     if n_valid == 0:
         return float("nan")
     grand_mean = np.nanmean(arr)
+    # Fold every day onto one clock grid: pos gives each interval its position
+    # within a day, so arr[pos == h] gathers clock position h across all days.
     pos = np.arange(arr.size) % period
     hourly = np.array([
         np.nanmean(arr[pos == h]) if np.any(~np.isnan(arr[pos == h]))
@@ -85,9 +87,14 @@ def interdaily_stability(activity: np.ndarray, intervals_per_day: int) -> float:
 def intradaily_variability(activity: np.ndarray) -> float:
     """Intradaily variability (IV), typically in [0, ~2].
 
-    ``IV = n * sum (x_i - x_{i-1})^2 / ((n - 1) * sum (x_i - m)^2)``.
-    Higher values indicate a more fragmented rhythm; IV approaches ~2 for white noise and ~0 for a
-    smooth sinusoid sampled densely.
+    IV is the mean squared difference between successive intervals divided by
+    the variance of the series, so it asks how much the signal jumps from one
+    interval to the next relative to how much it varies overall. Higher values
+    mean a more fragmented rhythm: IV approaches ~2 for white noise and ~0 for
+    a smooth sinusoid sampled densely. With no missing intervals this is the
+    Van Someren form, ``n * sum (x_i - x_{i-1})^2 / ((n - 1) * sum (x_i - m)^2)``;
+    the implementation below normalises over observed terms instead so that
+    gaps do not bias the result.
 
     Args:
         activity: Per-interval activity vector; NaNs are omitted.
@@ -140,6 +147,8 @@ def compute_average_day_profile(activity: np.ndarray, intervals_per_day: int) ->
     """
     arr = as_float_array(activity)
     period = int(intervals_per_day)
+    # Fold every day onto one clock grid: pos gives each interval its position
+    # within a day, so arr[pos == h] gathers clock position h across all days.
     pos = np.arange(arr.size) % period
 
     return np.array([
@@ -350,19 +359,35 @@ def compute_rhythm_metrics(
 
 
 def find_axis_columns(data_frame: pd.DataFrame) -> dict[str, str]:
-    """Map lower-cased, stripped column names to their originals."""
+    """Look up a frame's columns by a normalised version of their names.
+
+    Maps the lower-cased, stripped name to the column's real name, so callers
+    can ask for "x" or "utc time" without depending on how the header was
+    capitalised or spaced in the file they were handed, and then use the value
+    to index the frame.
+    """
     return {c.strip().lower(): c for c in data_frame.columns}
 
 
 def build_utc_index(data_frame: pd.DataFrame) -> pd.DatetimeIndex:
-    """UTC timestamps from a Beiwe accelerometer frame."""
+    """Build a UTC DatetimeIndex from a Beiwe accelerometer frame.
+
+    Beiwe accelerometer files use the same header on both platforms and carry
+    a numeric "timestamp" in epoch milliseconds as well as a human-readable
+    "UTC time" string. The numeric column is preferred because it needs no
+    date parsing; the string column is a fallback for a file that is missing
+    it. A file with neither cannot be placed on a timeline, so that raises
+    rather than returning something empty.
+    """
     columns = find_axis_columns(data_frame)
+
     if "timestamp" in columns:
         series = pd.to_datetime(data_frame[columns["timestamp"]], unit="ms", utc=True)
     elif "utc time" in columns:
         series = pd.to_datetime(data_frame[columns["utc time"]], utc=True)
     else:
         raise ValueError("no 'timestamp' or 'utc time' column")
+
     return pd.DatetimeIndex(series)
 
 
