@@ -1,4 +1,4 @@
-"""Ground-truth tests for forest.oak.rhythms (rest-activity rhythms).
+"""Ground-truth tests for forest.oak.circadian_rhythms (rest-activity rhythms).
 
 Each test builds a synthetic signal with known RAR properties and checks that the estimators recover
 them, plus an end-to-end ``run`` over a small synthetic study folder.
@@ -11,12 +11,12 @@ import pandas as pd
 import pytest
 
 from forest.constants import Frequency
-from forest.oak.rhythms import (compute_enmo_epochs, cosinor, interdaily_stability,
-    intradaily_variability, rar_metrics, run)
+from forest.oak.circadian_rhythms import (compute_enmo_intervals, cosinor, interdaily_stability,
+    intradaily_variability, compute_rhythm_metrics, run)
 
 
-EPOCH_S = 60
-EPOCHS_PER_DAY = 86400 // EPOCH_S
+INTERVAL_SECONDS = 60
+INTERVALS_PER_DAY = 86_400 // INTERVAL_SECONDS
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def rng():
 
 
 def _hours(n_days):
-    return np.arange(n_days * EPOCHS_PER_DAY) * (EPOCH_S / 3600.0)
+    return np.arange(n_days * INTERVALS_PER_DAY) * (INTERVAL_SECONDS / 3600.0)
 
 
 def test_strong_rhythm_recovers_cosinor(rng):
@@ -33,7 +33,7 @@ def test_strong_rhythm_recovers_cosinor(rng):
     omega = 2 * np.pi / 24
     activity = 50 + 40 * np.cos(omega * (times - 14))
     activity = np.clip(activity + rng.normal(0, 2, times.size), 0, None)
-    metrics = rar_metrics(activity, EPOCH_S)
+    metrics = compute_rhythm_metrics(activity, INTERVAL_SECONDS)
     assert metrics["IS"] > 0.9
     assert metrics["IV"] < 0.05
     assert metrics["RA"] > 0.6
@@ -44,8 +44,8 @@ def test_strong_rhythm_recovers_cosinor(rng):
 
 
 def test_white_noise_is_at_floor(rng):
-    activity = np.clip(rng.normal(50, 15, 7 * EPOCHS_PER_DAY), 0, None)
-    metrics = rar_metrics(activity, EPOCH_S)
+    activity = np.clip(rng.normal(50, 15, 7 * INTERVALS_PER_DAY), 0, None)
+    metrics = compute_rhythm_metrics(activity, INTERVAL_SECONDS)
     assert abs(metrics["IS"] - 1.0 / 7.0) < 0.05
     assert abs(metrics["IV"] - 2.0) < 0.15
     assert metrics["RA"] < 0.1
@@ -53,14 +53,14 @@ def test_white_noise_is_at_floor(rng):
 
 
 def test_identical_days_give_is_one():
-    one_day = np.abs(np.sin(np.linspace(0, 2 * np.pi, EPOCHS_PER_DAY, endpoint=False))) * 30
+    one_day = np.abs(np.sin(np.linspace(0, 2 * np.pi, INTERVALS_PER_DAY, endpoint=False))) * 30
     activity = np.tile(one_day, 5)
-    assert abs(interdaily_stability(activity, EPOCHS_PER_DAY) - 1.0) < 1e-6
+    assert abs(interdaily_stability(activity, INTERVALS_PER_DAY) - 1.0) < 1e-6
 
 
 def test_cosinor_flat_signal_is_degenerate():
-    flat = np.full(3 * EPOCHS_PER_DAY, 5.0)
-    result = cosinor(flat, EPOCH_S)
+    flat = np.full(3 * INTERVALS_PER_DAY, 5.0)
+    result = cosinor(flat, INTERVAL_SECONDS)
     assert result["cosinor_amplitude"] < 1e-6
 
 
@@ -87,11 +87,11 @@ def test_enmo_adapter_separates_rest_and_activity(rng):
         "z": 1 + rng.normal(0, 0.5, count),
     })
     raw = pd.concat([rest, active], ignore_index=True)
-    epochs = compute_enmo_epochs(raw, EPOCH_S, "UTC", gravity=1.0)
-    assert bool(np.all(epochs.dropna() >= 0))
-    assert 118 <= int(epochs.notna().sum()) <= 121
-    rest_mean = float(np.nanmean(epochs.iloc[:60]))
-    active_mean = float(np.nanmean(epochs.iloc[60:120]))
+    interval_means = compute_enmo_intervals(raw, INTERVAL_SECONDS, "UTC", gravity=1.0)
+    assert bool(np.all(interval_means.dropna() >= 0))
+    assert 118 <= int(interval_means.notna().sum()) <= 121
+    rest_mean = float(np.nanmean(interval_means.iloc[:60]))
+    active_mean = float(np.nanmean(interval_means.iloc[60:120]))
     assert active_mean > 5 * rest_mean
 
 
@@ -123,7 +123,7 @@ def test_run_end_to_end(tmp_path, rng):
         str(out_dir),
         "America/New_York",
         frequency=Frequency.HOURLY_AND_DAILY,
-        epoch_seconds=60,
+        interval_seconds=60,
     )
     assert (out_dir / "rar_summary.csv").exists()
     assert (out_dir / "participantA_rar_daily.csv").exists()
@@ -170,7 +170,7 @@ def test_run_skips_participants_below_min_valid_days(tmp_path, rng):
         str(tmp_path / "out"),
         "America/New_York",
         frequency=Frequency.DAILY,
-        epoch_seconds=60,
+        interval_seconds=60,
         min_valid_days=3.0
     )
     ids = set(summary["backend_id"])
@@ -185,7 +185,7 @@ def test_run_time_bounds_clip_data(tmp_path, rng):
     _write_participant(study / "rich" / "accelerometer", "2026-03-01 00:00:00", 5, 2, rng)
     unbounded = run(
         str(study), str(tmp_path / "out_all"), "America/New_York",
-        frequency=Frequency.DAILY, epoch_seconds=60, min_valid_days=3.0,
+        frequency=Frequency.DAILY, interval_seconds=60, min_valid_days=3.0,
     )
     assert "rich" in set(unbounded["backend_id"])
     bounded = run(
@@ -193,7 +193,7 @@ def test_run_time_bounds_clip_data(tmp_path, rng):
         str(tmp_path / "out_clip"),
         "America/New_York",
         frequency=Frequency.DAILY,
-        epoch_seconds=60,
+        interval_seconds=60,
         min_valid_days=3.0,
         time_start="2026-03-01 00_00_00",
         time_end="2026-03-02 12_00_00",
@@ -204,17 +204,17 @@ def test_run_time_bounds_clip_data(tmp_path, rng):
 
 def test_intradaily_variability_normalizes_over_valid_pairs():
     """IV with gaps must divide each sum by the count of terms that actually
-    contributed, not by the raw epoch count.
+    contributed, not by the raw interval count.
 
     An alternating 0, 2, 0, 2, ... series has every squared successive
     difference equal to 4 and variance 1, so its IV is exactly 4.0. Dropping
     one 0 and one 2 (equal counts, so the mean stays 1.0) leaves every
     surviving pair at squared-difference 4 and every present point at deviation
     1, so IV must remain exactly 4.0 under valid-pairs normalization. The
-    pre-fix formula divides the gap-reduced numerator by the full epoch count
+    pre-fix formula divides the gap-reduced numerator by the full interval count
     and so returns a biased value below 4.0.
     """
-    base = np.array([0.0, 2.0] * 12)          # 24 epochs; even idx 0, odd idx 2
+    base = np.array([0.0, 2.0] * 12)          # 24 intervals; even idx 0, odd idx 2
     assert intradaily_variability(base) == pytest.approx(4.0)
 
     gapped = base.copy()

@@ -1,7 +1,7 @@
 # Rest-Activity Rhythms
 
 ## Executive Summary:
-Use `oak.rhythms` to compute circadian rest-activity rhythm (RAR) summary
+Use `oak.circadian_rhythms` to compute circadian rest-activity rhythm (RAR) summary
 statistics from Beiwe accelerometer data. This complements the gait/step
 output of `oak` (see [oak](oak.md)): the same raw accelerometer stream,
 summarised as 24-hour activity patterning rather than walking.
@@ -9,11 +9,11 @@ summarised as 24-hour activity patterning rather than walking.
 ## Installation Instruction
 For instructions on how to install forest, please visit
 [here](https://github.com/onnela-lab/forest).
-`from forest.oak import rhythms`
+`from forest.oak import circadian_rhythms`
 
 ## Usage:
 ```
-from forest.oak.rhythms import run
+from forest.oak.circadian_rhythms import run
 from forest.constants import Frequency
 
 
@@ -39,10 +39,10 @@ run(study_folder, output_folder, tz_str, frequency,
 ```
 ### Default tuning parameters:
 ```
-# epoch length in seconds; must divide a 24-hour day evenly - epoch_seconds
-# (this is the length of one epoch, not the count per day: the number of
-# epochs in a 24-hour day is 86_400 / epoch_seconds, e.g. 1440 at 60 s)
-epoch_seconds = 60
+# interval length in seconds; must divide a 24-hour day evenly - interval_seconds
+# (this is the length of one interval, not the count per day: the number of
+# intervals in a 24-hour day is 86_400 / interval_seconds, e.g. 1440 at 60 s)
+interval_seconds = 60
 
 # numeric value of 1 g in the data's units (1.0 if the accelerometer is
 # already in g, consistent with oak; ~9.81 if the data are in m/s^2) - gravity
@@ -57,7 +57,7 @@ min_valid_days = 3
 Per sample, movement intensity is summarised as ENMO (the Euclidean norm of
 the acceleration vector minus one gravitational unit, clipped at zero):
 `ENMO = max(sqrt(x^2 + y^2 + z^2) / gravity - 1, 0)`. ENMO is averaged into
-fixed epochs on a timezone-local grid, with missing epochs held as `NaN`.
+fixed intervals on a timezone-local grid, with missing intervals held as `NaN`.
 
 ## List of summary statistics
 
@@ -78,8 +78,8 @@ participant. The following variables are created:
 |     cosinor_amplitude   	|      float    	|     Amplitude of the 24 h cosinor fit                                                  	|
 |     cosinor_acrophase_h 	|      float    	|     Clock hour of the fitted peak, in [0, 24)                                          	|
 |     cosinor_r2          	|      float    	|     Coefficient of determination of the cosinor fit                                    	|
-|     n_epochs            	|       int     	|     Number of epochs on the day-aligned grid                                           	|
-|     n_valid_epochs      	|       int     	|     Number of non-missing epochs                                                       	|
+|     n_epochs            	|       int     	|     Number of intervals on the day-aligned grid                                           	|
+|     n_valid_epochs      	|       int     	|     Number of non-missing intervals                                                    	|
 |     n_days              	|      float    	|     Number of days spanned by the recording                                            	|
 
 When `frequency` is `Frequency.DAILY` or `Frequency.HOURLY_AND_DAILY`, a
@@ -99,12 +99,12 @@ day-decomposable metrics (IS is recording-level only and is omitted):
 |     cosinor_amplitude   	|      float    	|     Amplitude of the day's cosinor fit                                     	|
 |     cosinor_acrophase_h 	|      float    	|     Clock hour of the day's fitted peak                                    	|
 |     cosinor_r2          	|      float    	|     Coefficient of determination of the day's cosinor fit                  	|
-|     n_valid_epochs      	|       int     	|     Number of non-missing epochs in the day                               	|
+|     n_valid_epochs      	|       int     	|     Number of non-missing intervals in the day                               	|
 
 ## Assumptions and limitations
 
 - **24-hour local days.** Days are treated as fixed 24-hour windows with a
-  constant number of epochs per day (`86_400 / epoch_seconds`). Days that are
+  constant number of intervals per day (`86_400 / interval_seconds`). Days that are
   not 24 hours long -- daylight-saving transitions, which produce 23- or
   25-hour local days -- are not specially handled. On those specific days this
   can bias valid-day coverage counts, day alignment, and the timing of L5,
