@@ -1,15 +1,10 @@
 # Rest-Activity Rhythms
 
-## Executive Summary:
+## Overview
 Use `oak.circadian_rhythms` to compute circadian rest-activity rhythm (RAR) summary
 statistics from Beiwe accelerometer data. This complements the gait/step
 output of `oak` (see [oak](oak.md)): the same raw accelerometer stream,
 summarised as 24-hour activity patterning rather than walking.
-
-## Installation Instruction
-For instructions on how to install forest, please visit
-[here](https://github.com/onnela-lab/forest).
-`from forest.oak import circadian_rhythms`
 
 ## Usage:
 ```
@@ -59,7 +54,9 @@ the acceleration vector minus one gravitational unit, clipped at zero):
 `ENMO = max(sqrt(x^2 + y^2 + z^2) / gravity - 1, 0)`. ENMO is averaged into
 fixed intervals on a timezone-local grid, with missing intervals held as `NaN`.
 
-## List of summary statistics
+## Output
+
+### Recording-level summary
 
 The recording-level output is written to `rar_summary.csv` with one row per
 participant. The following variables are created:
@@ -82,6 +79,8 @@ participant. The following variables are created:
 |     n_valid_epochs      	|       int     	|     Number of non-missing intervals                                                    	|
 |     n_days              	|      float    	|     Number of days spanned by the recording                                            	|
 
+### Daily summary
+
 When `frequency` is `Frequency.DAILY` or `Frequency.HOURLY_AND_DAILY`, a
 per-participant `<backend_id>_rar_daily.csv` is also written with the
 day-decomposable metrics (IS is recording-level only and is omitted):
@@ -100,6 +99,35 @@ day-decomposable metrics (IS is recording-level only and is omitted):
 |     cosinor_acrophase_h 	|      float    	|     Clock hour of the day's fitted peak                                    	|
 |     cosinor_r2          	|      float    	|     Coefficient of determination of the day's cosinor fit                  	|
 |     n_valid_epochs      	|       int     	|     Number of non-missing intervals in the day                               	|
+
+## Reading the output
+
+Interdaily stability (IS) says how consistently the activity pattern repeats at
+the same clock times across days. It sits near 1 when the same daily pattern
+repeats almost exactly and near `1/n_days` when activity is independent random
+noise, with no repeatable daily pattern.
+
+Intradaily variability (IV) says how fragmented activity is within a day,
+measured by changes between consecutive samples relative to overall
+variability. White noise sits at about 2. A smooth 24-hour sinusoidal pattern
+falls towards 0, and how far depends on the sampling interval: about 0.07 at
+hourly intervals, almost nothing at one-minute intervals.
+
+Lower IS and higher IV together mean a less consistent daily rhythm with more
+abrupt fluctuations within each day.
+
+These metrics have been studied in relation to mortality in prospective
+cohorts. Xu et al. found that only one of the two held up in NHANES (n=7,252,
+US adults, 674 deaths): IV associated with higher all-cause mortality, HR 1.13
+(1.01-1.26) per quartile, fully adjusted, while IS was not significant. Wendt
+et al. found the opposite split in a Brazilian cohort of older adults (n=965,
+80 deaths): IS associated with lower mortality, HR 0.74 (0.55-0.98) per
+standard deviation, while IV was not, and neither association survived
+adjustment for physical activity. So the direction is consistent, more
+disrupted rhythms track with worse outcomes, but which specific metric reaches
+significance depends on the population and the covariates, and physical
+activity can absorb the effect entirely. Treat IS and IV as descriptive rhythm
+measures, not validated standalone mortality predictors.
 
 ## Assumptions and limitations
 
@@ -124,3 +152,10 @@ day-decomposable metrics (IS is recording-level only and is omitted):
   *Sleep Science* 7(3):158-164 (2014).
 - Cornelissen G. Cosinor-based rhythmometry. *Theoretical Biology and
   Medical Modelling* 11:16 (2014).
+- Xu Y, Su S, Li X, Mansuri A, McCall WV, Wang X. Blunted rest-activity
+  circadian rhythm increases the risk of all-cause, cardiovascular disease and
+  cancer mortality in US adults. *Scientific Reports* 12:20665 (2022).
+- Wendt A, Bielemann RM, Wehrmeister FC, et al. Is rest-activity rhythm
+  prospectively associated with all-cause mortality in older people regardless
+  of sleep and physical activity level? The 'Como Vai?' Cohort study.
+  *PLoS ONE* 19(2):e0298031 (2024).
