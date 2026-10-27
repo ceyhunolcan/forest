@@ -221,16 +221,16 @@ def relative_amplitude(l5_value: float, m10_value: float) -> float:
 
 @dataclass
 class CosinorFit:
-    """Result of a single-component cosinor fit to an activity series.
+    """Stores the results of fitting a wave to daily activity patterns.
 
-    Args:
-        mesor: rhythm-adjusted mean of the fitted curve
-        amplitude: half the peak-to-trough difference of the fitted curve
-        acrophase_hours: time of the fitted peak, in hours measured from the
-            start of the series; a local clock hour only when the series
-            starts at local midnight, as run() ensures
-        r_squared: fraction of the variance in the activity series explained
-            by the fit
+    Attributes:
+        mesor: Average level of the fitted wave.
+        amplitude: How far the wave rises above its average level.
+        acrophase_hours: Time in hours from the start of the series when
+            the wave peaks. This matches local clock time when the series
+            starts at local midnight, as run() ensures.
+        r_squared: How much of the activity variation the fitted wave
+            explains, from 0 to 1.
     """
     mesor: float
     amplitude: float
