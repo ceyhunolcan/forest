@@ -153,13 +153,15 @@ def compute_circular_window_mean(profile: np.ndarray, window: int) -> np.ndarray
 
 @dataclass
 class ActivityWindows:
-    """Least- and most-active window averages from an average-day profile.
+    """Stores the least and most active periods of the average day.
 
-    Args:
-        l5: mean activity over the least-active five hours of the average day
-        m10: mean activity over the most-active ten hours of the average day
-        l5_onset_hours: clock hour at which the least-active window starts
-        m10_onset_hours: clock hour at which the most-active window starts
+    Attributes:
+        l5: Average activity during the least active 5 hours.
+        m10: Average activity during the most active 10 hours.
+        l5_onset_hours: Clock hour when the least active period starts.
+            For example, 23.5 means 23:30.
+        m10_onset_hours: Clock hour when the most active period starts.
+            For example, 8.5 means 08:30.
     """
     l5: float
     m10: float
