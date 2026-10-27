@@ -383,14 +383,24 @@ def build_utc_index(data_frame: pd.DataFrame) -> pd.DatetimeIndex:
 
 
 def read_accelerometer_file(filepath: str) -> pd.DataFrame:
-    """Read one raw accelerometer CSV, validating required columns."""
+    """Reads an accelerometer CSV file and checks its required columns.
+
+    Column names are stripped of extra spaces and changed to lowercase.
+    Raises ValueError if the file is missing axis or time columns.
+    """
     data_frame = pd.read_csv(filepath)
     columns = find_axis_columns(data_frame)
+
     if not {"x", "y", "z"}.issubset(columns):
-        raise ValueError(f"{filepath}: missing x/y/z columns")
+        raise ValueError(f"Missing accelerometer axis columns in {filepath}")
+
     if "timestamp" not in columns and "utc time" not in columns:
-        raise ValueError(f"{filepath}: missing timestamp column")
-    data_frame.columns = [c.strip().lower() for c in data_frame.columns]
+        raise ValueError(f"Missing timestamp or UTC time column in {filepath}")
+
+    data_frame.columns = [
+        column.strip().lower() for column in data_frame.columns
+    ]
+
     return data_frame
 
 
