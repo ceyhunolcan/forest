@@ -239,52 +239,62 @@ class CosinorFit:
 
 
 def cosinor(
-    activity: np.ndarray, interval_seconds: float, period_hours: float = 24.0
+    values: np.ndarray,
+    interval_seconds: float,
+    period_hours: float = 24.0,
 ) -> CosinorFit:
-    """Single-component cosinor fit ``M + A cos(w t - phi)`` via OLS.
+    """Fits a cosine wave to activity data and measures how well it matches.
 
-    The phase is measured from the first element of ``activity``: ``t = 0`` is
-    index 0, so ``cosinor_acrophase_h`` is the peak time relative to the start
-    of the series. It equals a local *clock* hour only when the series begins
-    at local midnight, which ``run()`` guarantees by aligning to a
-    midnight-anchored day grid before calling this. A caller passing an
-    unaligned series gets a start-relative phase, not a clock hour. Days that
-    are not 24 h (DST transitions) are not yet handled; see the module notes.
-
-    Args:
-        activity: Per-interval activity vector; NaNs are omitted.
-        interval_seconds: Interval length in seconds.
-        period_hours: Rhythm period; defaults to 24 h.
-
-    Returns:
-        A CosinorFit. Every field is NaN when fewer than three intervals are
-        present, since the three-parameter fit is undefined below that.
+    Peak time is measured from the first value. It matches local clock time
+    when run() aligns the series to local midnight.
+    Returns all NaN values if fewer than three observations are available.
     """
-    nan_result = CosinorFit(float("nan"), float("nan"), float("nan"), float("nan"))
-    arr = as_float_array(activity)
-    hours = np.arange(arr.size) * (float(interval_seconds) / 3600.0)
-    valid = ~np.isnan(arr)
-    if int(valid.sum()) < 3:
-        return nan_result
-    times = hours[valid]
-    values = arr[valid]
-    omega = 2.0 * np.pi / float(period_hours)
-    design = np.column_stack([
-        np.ones_like(times), np.cos(omega * times), np.sin(omega * times)
+    missing = float("nan")
+    empty_fit = CosinorFit(
+        mesor=missing,
+        amplitude=missing,
+        acrophase_hours=missing,
+        r_squared=missing,
+    )
+
+    arr = as_float_array(values)
+    hours = np.arange(arr.size) * interval_seconds / 3600
+
+    observed = ~np.isnan(arr)
+    observed_values = arr[observed]
+    observed_hours = hours[observed]
+
+    if observed_values.size < 3:
+        return empty_fit
+
+    omega = 2 * np.pi / period_hours
+
+    matrix = np.column_stack([
+        np.ones_like(observed_hours),
+        np.cos(omega * observed_hours),
+        np.sin(omega * observed_hours),
     ])
-    coef, _res, _rank, _sv = np.linalg.lstsq(design, values, rcond=None)
-    mesor, beta, gamma = coef
-    amplitude = float(np.hypot(beta, gamma))
-    acrophase = float((np.arctan2(gamma, beta) / omega) % period_hours)
-    resid = values - design @ coef
-    ss_res = float(np.sum(resid ** 2))
-    ss_tot = float(np.sum((values - values.mean()) ** 2))
-    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+
+    coefficients, _, _, _ = np.linalg.lstsq(
+        matrix, observed_values, rcond=None
+    )
+
+    mesor, beta, gamma = coefficients
+
+    amplitude = np.hypot(beta, gamma)
+    peak_time = (np.arctan2(gamma, beta) / omega) % period_hours
+
+    fitted_values = matrix @ coefficients
+
+    residual_sum = np.sum((observed_values - fitted_values) ** 2)
+    total_sum = np.sum((observed_values - np.mean(observed_values)) ** 2)
+
+    r_squared = float("nan") if total_sum == 0 else float(1 - residual_sum / total_sum)
     return CosinorFit(
         mesor=float(mesor),
-        amplitude=amplitude,
-        acrophase_hours=acrophase,
-        r_squared=float(r_squared),
+        amplitude=float(amplitude),
+        acrophase_hours=float(peak_time),
+        r_squared=r_squared,
     )
 
 
