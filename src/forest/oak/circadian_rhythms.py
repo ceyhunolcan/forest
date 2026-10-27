@@ -349,14 +349,15 @@ def compute_rhythm_metrics(
 
 
 def find_axis_columns(data_frame: pd.DataFrame) -> dict[str, str]:
-    """Look up a frame's columns by a normalised version of their names.
+    """Maps cleaned-up column names to the original ones.
 
-    Maps the lower-cased, stripped name to the column's real name, so callers
-    can ask for "x" or "utc time" without depending on how the header was
-    capitalised or spaced in the file they were handed, and then use the value
-    to index the frame.
+    This makes it easier to find columns with different capitalization
+    or extra spaces.
     """
-    return {c.strip().lower(): c for c in data_frame.columns}
+    return {
+        column.strip().lower(): column
+        for column in data_frame.columns
+    }
 
 
 def build_utc_index(data_frame: pd.DataFrame) -> pd.DatetimeIndex:
