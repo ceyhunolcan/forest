@@ -530,34 +530,31 @@ def get_ids_with_accelerometer_data(study_folder: str) -> list[str]:
 
 
 def count_valid_days(
-    values: np.ndarray, intervals_per_day: int, min_valid_hours_per_day: float
+    values: np.ndarray,
+    intervals_per_day: int,
+    min_valid_hours_per_day: float,
 ) -> int:
-    """Count the days that individually have enough data to be usable.
+    """Counts how many days have enough observed activity data.
 
-    A day counts only if that day on its own reaches the required number of
-    observed hours. Totalling the observed intervals across the whole
-    recording and dividing by a day's length would let several half-observed
-    days stand in for one whole one, which is not the same thing: six days at
-    twelve hours each would pass a three-day requirement without a single day
-    being well covered.
-
-    Args:
-        values: Per-interval activity on a whole number of day-aligned days.
-        intervals_per_day: Number of intervals in a 24 h day.
-        min_valid_hours_per_day: Hours a day needs before it counts.
-
-    Returns:
-        The number of days meeting the requirement.
+    Each day is checked separately, so six half-covered days
+    aren't combined to count as full days.
     """
-    n_days = values.size // intervals_per_day
-    if n_days == 0:
+    arr = np.asarray(values, dtype=float).ravel()
+    period = int(intervals_per_day)
+
+    whole_days = arr.size // period
+
+    if whole_days == 0:
         return 0
 
-    days = values[: n_days * intervals_per_day].reshape(n_days, intervals_per_day)
-    coverage_per_day = np.sum(~np.isnan(days), axis=1) / intervals_per_day
-    required_coverage = float(min_valid_hours_per_day) / 24.0
+    daily_values = arr[:whole_days * period].reshape(whole_days, period)
 
-    return int(np.sum(coverage_per_day >= required_coverage))
+    observed_per_day = np.count_nonzero(~np.isnan(daily_values), axis=1)
+    observed_hours = observed_per_day * 24 / period
+
+    valid_days = np.count_nonzero(observed_hours >= min_valid_hours_per_day)
+
+    return int(valid_days)
 
 
 def run(
