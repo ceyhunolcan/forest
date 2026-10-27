@@ -489,25 +489,49 @@ def load_participant_activity(
 
 
 def compute_daily_metrics(
-    values: np.ndarray, start: pd.Timestamp, interval_seconds: int
+    values: np.ndarray,
+    start: pd.Timestamp,
+    interval_seconds: int,
 ) -> pd.DataFrame:
-    """Per-day day-decomposable metrics (IS is recording-level only)."""
-    intervals_per_day = SECONDS_IN_DAY // int(interval_seconds)
-    n_days = values.size // intervals_per_day
-    rows: list[dict[str, float | str]] = []
-    for day in range(n_days):
-        chunk = values[day * intervals_per_day:(day + 1) * intervals_per_day]
-        date = (start + pd.Timedelta(days=day)).date().isoformat()
-        valid_fraction = np.sum(~np.isnan(chunk)) / intervals_per_day
-        if valid_fraction < MIN_DAY_COVERAGE:
-            rows.append({"date": date, "n_valid_epochs": int(np.sum(~np.isnan(chunk)))})
-            continue
-        windows = compute_l5_m10(chunk, intervals_per_day)
-        fit = cosinor(chunk, interval_seconds)
+    """Calculates activity metrics for each day of the recording.
 
-        row: dict[str, float | str] = {
+    Days with less than half their data observed keep only their date
+    and valid interval count.
+
+    Args:
+        values: Activity values starting at local midnight.
+        start: Starting date and time of the recording.
+        interval_seconds: Length of each interval in seconds.
+
+    Returns:
+        A DataFrame containing the daily activity metrics.
+    """
+    arr = np.asarray(values, dtype=float).ravel()
+    period = int(SECONDS_IN_DAY / interval_seconds)
+    whole_days = arr.size // period
+
+    rows: list[dict[str, float | str]] = []
+
+    for day in range(whole_days):
+        daily_values = arr[day * period:(day + 1) * period]
+        date = (start + pd.DateOffset(days=day)).date().isoformat()
+
+        observed_count = int(np.count_nonzero(~np.isnan(daily_values)))
+        coverage = observed_count / period
+
+        if coverage < MIN_DAY_COVERAGE:
+            rows.append({
+                "date": date,
+                "n_valid_epochs": observed_count,
+            })
+            continue
+
+        windows = compute_l5_m10(daily_values, period)
+        fit = cosinor(daily_values, float(interval_seconds))
+
+        rows.append({
             "date": date,
-            "IV": intradaily_variability(chunk),
+            "IV": intradaily_variability(daily_values),
             "RA": relative_amplitude(windows.l5, windows.m10),
             "L5": windows.l5,
             "M10": windows.m10,
@@ -517,10 +541,25 @@ def compute_daily_metrics(
             "cosinor_amplitude": fit.amplitude,
             "cosinor_acrophase_h": fit.acrophase_hours,
             "cosinor_r2": fit.r_squared,
-            "n_valid_epochs": int(np.sum(~np.isnan(chunk))),
-        }
-        rows.append(row)
-    return pd.DataFrame(rows)
+            "n_valid_epochs": observed_count,
+        })
+
+    columns = [
+        "date",
+        "IV",
+        "RA",
+        "L5",
+        "M10",
+        "L5_onset_h",
+        "M10_onset_h",
+        "cosinor_mesor",
+        "cosinor_amplitude",
+        "cosinor_acrophase_h",
+        "cosinor_r2",
+        "n_valid_epochs",
+    ]
+
+    return pd.DataFrame(rows, columns=columns)
 
 
 def get_ids_with_accelerometer_data(study_folder: str) -> list[str]:
