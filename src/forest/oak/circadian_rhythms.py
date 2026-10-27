@@ -169,57 +169,39 @@ class ActivityWindows:
     m10_onset_hours: float
 
 
-def compute_l5_m10(activity: np.ndarray, intervals_per_day: int) -> ActivityWindows:
-    """Compute L5 and M10 from the average-day profile, with their onset hours.
+def compute_l5_m10(values: np.ndarray, intervals_per_day: int) -> ActivityWindows:
+    """Finds the least active 5 hours (L5) and most active 10 hours (M10).
 
-    L5 and M10 are the conventional names for the mean activity over the
-    least-active five hours and the most-active ten hours of the average day.
-    A low L5 means the quietest part of the day is genuinely quiet, and a high
-    M10 means the busiest part is genuinely busy, so the two together describe
-    how far the day swings between rest and activity. The onset hours say when
-    each of those windows begins.
-
-    Args:
-        activity: Per-interval activity vector.
-        intervals_per_day: Number of intervals in a 24 h day.
-
-    Returns:
-        An ActivityWindows holding both window means and their onset hours.
+    Uses the average day and returns NaN if the results can't be calculated.
     """
     period = int(intervals_per_day)
-    intervals_per_hour = period / 24.0
-    profile = compute_average_day_profile(activity, period)
+    intervals_per_hour = period / 24
 
-    # Each window is slid around the clock, so L5 is the minimum of every
-    # 5-hour window mean and M10 the maximum of every 10-hour window mean.
-    means_5 = compute_circular_window_mean(
-        profile, round(L5_WINDOW_HOURS * intervals_per_hour)
-    )
-    means_10 = compute_circular_window_mean(
-        profile, round(M10_WINDOW_HOURS * intervals_per_hour)
-    )
-    # A window that overlaps an unobserved clock position comes out NaN from the
-    # convolution above, so only fully observed windows are candidates here. If
-    # the recording is gappy enough that no window is complete, every metric is
-    # left undefined rather than reported from partial coverage.
-    if np.all(np.isnan(means_5)) or np.all(np.isnan(means_10)):
+    average_day = compute_average_day_profile(values, period)
+
+    l5_window = round(L5_WINDOW_HOURS * intervals_per_hour)
+    m10_window = round(M10_WINDOW_HOURS * intervals_per_hour)
+
+    l5_means = compute_circular_window_mean(average_day, l5_window)
+    m10_means = compute_circular_window_mean(average_day, m10_window)
+
+    if np.all(np.isnan(l5_means)) or np.all(np.isnan(m10_means)):
+        missing = float("nan")
         return ActivityWindows(
-            l5=float("nan"),
-            m10=float("nan"),
-            l5_onset_hours=float("nan"),
-            m10_onset_hours=float("nan"),
+            l5=missing,
+            m10=missing,
+            l5_onset_hours=missing,
+            m10_onset_hours=missing,
         )
 
-    # nanargmin/nanargmax rather than argmin/argmax: the plain versions would
-    # return the position of a NaN window instead of skipping it.
-    idx_5 = int(np.nanargmin(means_5))
-    idx_10 = int(np.nanargmax(means_10))
+    l5_start = int(np.nanargmin(l5_means))
+    m10_start = int(np.nanargmax(m10_means))
 
     return ActivityWindows(
-        l5=float(means_5[idx_5]),
-        m10=float(means_10[idx_10]),
-        l5_onset_hours=float(idx_5 / intervals_per_hour),
-        m10_onset_hours=float(idx_10 / intervals_per_hour),
+        l5=float(l5_means[l5_start]),
+        m10=float(m10_means[m10_start]),
+        l5_onset_hours=float(l5_start / intervals_per_hour),
+        m10_onset_hours=float(m10_start / intervals_per_hour),
     )
 
 
