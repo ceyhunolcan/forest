@@ -206,11 +206,17 @@ def compute_l5_m10(values: np.ndarray, intervals_per_day: int) -> ActivityWindow
 
 
 def relative_amplitude(l5_value: float, m10_value: float) -> float:
-    """Relative amplitude ``(M10 - L5) / (M10 + L5)``, in [0, 1]."""
-    denom = m10_value + l5_value
-    if denom == 0:
+    """Measures the contrast between the most and least active periods.
+
+    The score ranges from 0 to 1 for nonnegative activity and returns
+    NaN when the total is zero or a value is missing.
+    """
+    total = m10_value + l5_value
+
+    if total == 0:
         return float("nan")
-    return float((m10_value - l5_value) / denom)
+
+    return float((m10_value - l5_value) / total)
 
 
 @dataclass
