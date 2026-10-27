@@ -361,25 +361,25 @@ def find_axis_columns(data_frame: pd.DataFrame) -> dict[str, str]:
 
 
 def build_utc_index(data_frame: pd.DataFrame) -> pd.DatetimeIndex:
-    """Build a UTC DatetimeIndex from a Beiwe accelerometer frame.
+    """Converts the time column into a UTC timeline.
 
-    Beiwe accelerometer files use the same header on both platforms and carry
-    a numeric "timestamp" in epoch milliseconds as well as a human-readable
-    "UTC time" string. The numeric column is preferred because it needs no
-    date parsing; the string column is a fallback for a file that is missing
-    it. A file with neither cannot be placed on a timeline, so that raises
-    rather than returning something empty.
+    Uses the numeric timestamp first because it is more precise than
+    parsing text. Raises ValueError if no time column is found.
     """
     columns = find_axis_columns(data_frame)
 
     if "timestamp" in columns:
-        series = pd.to_datetime(data_frame[columns["timestamp"]], unit="ms", utc=True)
+        times = pd.to_datetime(
+            data_frame[columns["timestamp"]], unit="ms", utc=True
+        )
     elif "utc time" in columns:
-        series = pd.to_datetime(data_frame[columns["utc time"]], utc=True)
+        times = pd.to_datetime(
+            data_frame[columns["utc time"]], utc=True
+        )
     else:
-        raise ValueError("no 'timestamp' or 'utc time' column")
+        raise ValueError("No timestamp or UTC time column found")
 
-    return pd.DatetimeIndex(series)
+    return pd.DatetimeIndex(times)
 
 
 def read_accelerometer_file(filepath: str) -> pd.DataFrame:
