@@ -304,27 +304,34 @@ def compute_rhythm_metrics(
     activity: np.ndarray,
     interval_seconds: float,
 ) -> None:
-    """Full recording-level RAR metric set.
+    """Calculates rhythm metrics and adds one summary row to the results.
 
     Args:
-        activity: Per-interval activity vector spanning whole days.
-        interval_seconds: Interval length in seconds; ``86400 / interval_seconds``
-            must be a whole number.
+        rows: List where the new results will be added.
+        backend_id: Identifier for the participant.
+        activity: Activity values covering whole days, starting at local midnight.
+        interval_seconds: Length of each activity interval in seconds.
 
-    Returns:
-        Dict of IS, IV, RA, L5/M10 (+ onsets), cosinor terms and counts.
+    Raises:
+        ValueError: If the interval length does not divide a day evenly.
     """
-    intervals_per_day = SECONDS_IN_DAY / float(interval_seconds)
-    if not float(intervals_per_day).is_integer():
-        raise ValueError(f"interval_seconds={interval_seconds} does not divide a 24 h day")
-    intervals_per_day = int(intervals_per_day)
+    intervals_per_day = SECONDS_IN_DAY / interval_seconds
+
+    if not intervals_per_day.is_integer():
+        raise ValueError(
+            f"interval_seconds={interval_seconds} does not divide "
+            "a 24-hour day evenly"
+        )
+
+    period = int(intervals_per_day)
     arr = as_float_array(activity)
-    windows = compute_l5_m10(arr, intervals_per_day)
+
+    windows = compute_l5_m10(arr, period)
     fit = cosinor(arr, interval_seconds)
 
     rows.append({
         "backend_id": backend_id,
-        "IS": interdaily_stability(arr, intervals_per_day),
+        "IS": interdaily_stability(arr, period),
         "IV": intradaily_variability(arr),
         "RA": relative_amplitude(windows.l5, windows.m10),
         "L5": windows.l5,
@@ -336,8 +343,8 @@ def compute_rhythm_metrics(
         "cosinor_acrophase_h": fit.acrophase_hours,
         "cosinor_r2": fit.r_squared,
         "n_epochs": int(arr.size),
-        "n_valid_epochs": int(np.sum(~np.isnan(arr))),
-        "n_days": round(arr.size / intervals_per_day, 3),
+        "n_valid_epochs": int(np.count_nonzero(~np.isnan(arr))),
+        "n_days": round(arr.size / period, 3),
     })
 
 
