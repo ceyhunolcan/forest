@@ -53,37 +53,39 @@ def as_float_array(values: np.ndarray) -> np.ndarray:
     return arr
 
 
-def interdaily_stability(activity: np.ndarray, intervals_per_day: int) -> float:
-    """Interdaily stability (IS), in (0, 1].
+def interdaily_stability(values: np.ndarray, intervals_per_day: int) -> float:
+    """Measures how consistent activity patterns are across days.
 
-    ``IS = n * sum_h (m_h - m)^2 / (p * sum_i (x_i - m)^2)`` where ``p`` is ``intervals_per_day``,
-    ``m_h`` the mean over all days at interval-of-day ``h`` and ``m`` the grand mean. IS approaches 1
-    for a perfectly reproducible daily pattern and ``p / n`` (i.e. ``1 / n_days``) for white noise.
-
-    Args:
-        activity: Per-interval activity vector; NaNs are omitted.
-        intervals_per_day: Number of intervals in a 24 h day.
-
-    Returns:
-        The IS value, or NaN if it is undefined.
+    Returns NaN if it can't be calculated.
     """
-    arr = as_float_array(activity)
+    arr = as_float_array(values)
     period = int(intervals_per_day)
-    n_valid = int(np.sum(~np.isnan(arr)))
-    if n_valid == 0:
+
+    count = np.sum(~np.isnan(arr))
+    if count == 0:
         return float("nan")
-    grand_mean = np.nanmean(arr)
-    # Fold every day onto one clock grid: pos gives each interval its position
-    # within a day, so arr[pos == h] gathers clock position h across all days.
-    pos = np.arange(arr.size) % period
-    hourly = np.array([
-        np.nanmean(arr[pos == h]) if np.any(~np.isnan(arr[pos == h]))
-        else np.nan
-        for h in range(period)
-    ])
-    num = n_valid * np.nansum((hourly - grand_mean) ** 2)
-    den = period * np.nansum((arr - grand_mean) ** 2)
-    return float(num / den) if den > 0 else float("nan")
+
+    mean = np.nanmean(arr)
+    positions = np.arange(arr.size) % period
+
+    position_means: list[float] = []
+    for h in range(period):
+        same_time = arr[positions == h]
+
+        if np.any(~np.isnan(same_time)):
+            position_means.append(float(np.nanmean(same_time)))
+        else:
+            position_means.append(np.nan)
+
+    average_day = np.asarray(position_means, dtype=float)
+
+    numerator = count * np.nansum((average_day - mean) ** 2)
+    denominator = period * np.nansum((arr - mean) ** 2)
+
+    if denominator == 0:
+        return float("nan")
+
+    return float(numerator / denominator)
 
 
 def intradaily_variability(activity: np.ndarray) -> float:
