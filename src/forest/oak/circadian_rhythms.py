@@ -88,47 +88,35 @@ def interdaily_stability(values: np.ndarray, intervals_per_day: int) -> float:
     return float(numerator / denominator)
 
 
-def intradaily_variability(activity: np.ndarray) -> float:
-    """Intradaily variability (IV), typically in [0, ~2].
+def intradaily_variability(values: np.ndarray) -> float:
+    """Measures how choppy activity is between neighboring intervals.
 
-    IV is the mean squared difference between successive intervals divided by
-    the variance of the series, so it asks how much the signal jumps from one
-    interval to the next relative to how much it varies overall. Higher values
-    mean a more fragmented rhythm: IV approaches ~2 for white noise and ~0 for
-    a smooth sinusoid sampled densely. With no missing intervals this is the
-    Van Someren form, ``n * sum (x_i - x_{i-1})^2 / ((n - 1) * sum (x_i - m)^2)``;
-    the implementation below normalises over observed terms instead so that
-    gaps do not bias the result.
-
-    Args:
-        activity: Per-interval activity vector; NaNs are omitted.
-
-    Returns:
-        The IV value, or NaN if it is undefined.
+    Compares changes to overall variation and returns NaN if it can't be calculated.
     """
-    arr = as_float_array(activity)
+    arr = as_float_array(values)
+
     if arr.size < 2:
         return float("nan")
 
-    valid = ~np.isnan(arr)
+    observed = ~np.isnan(arr)
+    valid_pairs = observed[1:] & observed[:-1]
 
-    # A successive difference is only defined when both of its endpoints are
-    # present; np.diff across a gap yields NaN, which np.nansum then drops. To
-    # keep the normalisation consistent we divide each sum by the count of
-    # terms that actually contributed rather than by the raw interval count, so
-    # missing intervals neither inflate nor deflate IV. With no gaps this reduces
-    # exactly to the Van Someren n / (n - 1) form.
-    valid_pairs = valid[1:] & valid[:-1]
-    n_pairs = int(np.count_nonzero(valid_pairs))
-    n_valid = int(np.count_nonzero(valid))
-    if n_pairs < 1 or n_valid < 2:
+    pair_count = np.count_nonzero(valid_pairs)
+    observed_count = np.count_nonzero(observed)
+
+    if pair_count == 0 or observed_count < 2:
         return float("nan")
 
-    grand_mean = np.nanmean(arr)
-    diffs = np.diff(arr)
-    mean_sq_diff = np.nansum(diffs ** 2) / n_pairs
-    variance = np.nansum((arr - grand_mean) ** 2) / n_valid
-    return float(mean_sq_diff / variance) if variance > 0 else float("nan")
+    mean = np.nanmean(arr)
+    differences = np.diff(arr)
+
+    mean_squared_difference = np.nansum(differences ** 2) / pair_count
+    variance = np.nansum((arr - mean) ** 2) / observed_count
+
+    if variance == 0:
+        return float("nan")
+
+    return float(mean_squared_difference / variance)
 
 
 def compute_average_day_profile(activity: np.ndarray, intervals_per_day: int) -> np.ndarray:
