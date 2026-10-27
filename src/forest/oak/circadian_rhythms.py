@@ -131,14 +131,24 @@ def compute_average_day_profile(values: np.ndarray, intervals_per_day: int) -> n
     return np.asarray(position_means, dtype=float)
 
 
-def compute_circular_window_mean(
-    profile: np.ndarray, window: int
-) -> np.ndarray:
-    """Mean over a length-``window`` window at every circular start."""
-    width = max(1, int(window))
-    extended = np.concatenate([profile, profile[: width - 1]]) if width > 1 else profile
-    kernel = np.ones(width) / width
-    return np.convolve(extended, kernel, mode="valid")
+def compute_circular_window_mean(profile: np.ndarray, window: int) -> np.ndarray:
+    """Averages values from each starting position, wrapping around the end of the day.
+
+    Returns NaN if a window contains missing values.
+    """
+    arr = as_float_array(profile)
+    window_size = max(1, int(window))
+
+    offsets = np.arange(window_size)
+    window_means: list[float] = []
+
+    for start in range(arr.size):
+        positions = (start + offsets) % arr.size
+        values = arr[positions]
+
+        window_means.append(float(np.mean(values)))
+
+    return np.asarray(window_means, dtype=float)
 
 
 @dataclass
