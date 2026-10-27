@@ -119,35 +119,26 @@ def intradaily_variability(values: np.ndarray) -> float:
     return float(mean_squared_difference / variance)
 
 
-def compute_average_day_profile(activity: np.ndarray, intervals_per_day: int) -> np.ndarray:
-    """Average one day's shape by folding every day onto the same clock grid.
+def compute_average_day_profile(values: np.ndarray, intervals_per_day: int) -> np.ndarray:
+    """Calculates the average activity at each position across days.
 
-    Each position in the returned profile is the mean activity at that point in
-    the day across all the days in the recording. A position with no data on
-    any day stays NaN rather than being filled in, because substituting an
-    average there would make an unobserved part of the day look as active as
-    the observed parts and would bias L5, M10 and the relative amplitude that
-    are computed from this profile.
-
-    Args:
-        activity: Per-interval activity vector.
-        intervals_per_day: Number of intervals in a 24 h day.
-
-    Returns:
-        Array of length intervals_per_day, NaN wherever a clock position was
-        never observed.
+    Positions with no observed values stay as NaN.
     """
-    arr = as_float_array(activity)
+    arr = as_float_array(values)
     period = int(intervals_per_day)
-    # Fold every day onto one clock grid: pos gives each interval its position
-    # within a day, so arr[pos == h] gathers clock position h across all days.
-    pos = np.arange(arr.size) % period
 
-    return np.array([
-        np.nanmean(arr[pos == h]) if np.any(~np.isnan(arr[pos == h]))
-        else np.nan
-        for h in range(period)
-    ])
+    positions = np.arange(arr.size) % period
+    position_means: list[float] = []
+
+    for h in range(period):
+        same_time = arr[positions == h]
+
+        if np.any(~np.isnan(same_time)):
+            position_means.append(float(np.nanmean(same_time)))
+        else:
+            position_means.append(np.nan)
+
+    return np.asarray(position_means, dtype=float)
 
 
 def compute_circular_window_mean(
