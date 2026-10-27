@@ -66,18 +66,8 @@ def interdaily_stability(values: np.ndarray, intervals_per_day: int) -> float:
         return float("nan")
 
     mean = np.nanmean(arr)
-    positions = np.arange(arr.size) % period
 
-    position_means: list[float] = []
-    for h in range(period):
-        same_time = arr[positions == h]
-
-        if np.any(~np.isnan(same_time)):
-            position_means.append(float(np.nanmean(same_time)))
-        else:
-            position_means.append(np.nan)
-
-    average_day = np.asarray(position_means, dtype=float)
+    average_day = compute_average_day_profile(arr, period)
 
     numerator = count * np.nansum((average_day - mean) ** 2)
     denominator = period * np.nansum((arr - mean) ** 2)
