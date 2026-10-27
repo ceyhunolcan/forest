@@ -43,11 +43,13 @@ L5_WINDOW_HOURS = 5     # the "5" in L5: width of the least-active window
 M10_WINDOW_HOURS = 10   # the "10" in M10: width of the most-active window
 
 
-def as_float_array(activity: np.ndarray) -> np.ndarray:
-    """Return ``activity`` as a 1-D float array, erroring if empty."""
-    arr = np.asarray(activity, dtype=float).ravel()
+def as_float_array(values: np.ndarray) -> np.ndarray:
+    """Turns the input into a flat array of floats."""
+    arr = np.asarray(values, dtype=float).ravel()
+
     if arr.size == 0:
-        raise ValueError("activity is empty")
+        raise ValueError("Array is empty")
+
     return arr
 
 
