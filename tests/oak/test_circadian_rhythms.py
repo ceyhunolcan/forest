@@ -353,3 +353,21 @@ def test_daily_file_keeps_its_columns_when_every_day_is_short():
     assert len(daily) == 2
     assert daily["n_valid_epochs"].tolist() == [0, 0]
     assert daily["date"].tolist() == ["2026-03-01", "2026-03-02"]
+
+
+def test_is_equals_share_of_pattern_days():
+    """Checks IS = k / (k + j) for k patterned and j flat days."""
+    hours = _hours(1)
+    pattern = 2.0 + np.cos(2 * np.pi * hours / 24)
+    flat = np.full(INTERVALS_PER_DAY, 2.0)
+
+    three_days = np.concatenate([pattern, pattern, flat])
+    four_days = np.concatenate([pattern, pattern, pattern, flat])
+
+    assert interdaily_stability(
+        three_days, INTERVALS_PER_DAY
+    ) == pytest.approx(2 / 3)
+
+    assert interdaily_stability(
+        four_days, INTERVALS_PER_DAY
+    ) == pytest.approx(3 / 4)
