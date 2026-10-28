@@ -493,3 +493,19 @@ def test_fall_back_averages_repeated_hour():
     assert values[90] == pytest.approx(0.2)
     assert values[120] == pytest.approx(0.4)
     assert np.count_nonzero(~np.isnan(values)) == 2
+
+
+def test_cosinor_phase_is_relative_to_recording_start():
+    elapsed_hours = _hours(7)
+    clock_hours = (elapsed_hours + 6) % 24
+
+    activity = 0.05 + 0.04 * np.cos(
+        2 * np.pi * (clock_hours - 14) / 24
+    )
+
+    result = cosinor(activity, INTERVAL_SECONDS)
+
+    assert result.mesor == pytest.approx(0.05, abs=1e-6)
+    assert result.amplitude == pytest.approx(0.04, abs=1e-6)
+    assert result.acrophase_hours == pytest.approx(8.0, abs=1e-6)
+    assert result.r_squared == pytest.approx(1.0, abs=1e-6)
