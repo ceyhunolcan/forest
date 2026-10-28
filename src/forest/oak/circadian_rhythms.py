@@ -736,58 +736,111 @@ def run(
     min_valid_days: float = 3.0,
     min_valid_hours_per_day: float = 16.0,
 ) -> pd.DataFrame:
-    """Compute rest-activity rhythm summaries over a Beiwe study folder.
+    """Processes accelerometer data and saves rhythm metrics.
+
+    Writes a summary file and optional daily files for each participant.
 
     Args:
-        study_folder: Path with one subfolder per backend ID, each holding
-            an ``accelerometer`` directory of raw CSVs.
-        output_folder: Directory for outputs (created if absent).
-        tz_str: IANA timezone of the study site.
-        frequency: Output resolution; ``Frequency.DAILY`` or
-            ``Frequency.HOURLY_AND_DAILY`` additionally writes per-day files.
-        time_start: Optional lower bound, ``%Y-%m-%d %H_%M_%S``.
-        time_end: Optional upper bound, ``%Y-%m-%d %H_%M_%S``.
-        users: Optional explicit backend IDs; otherwise all are used.
-        interval_seconds: Interval length in seconds; must divide 86_400 evenly.
-        gravity: Value of 1 g in the data's units (1.0 = data already in g).
-        min_valid_days: Participants with fewer valid days are skipped.
-        min_valid_hours_per_day: Hours of data a single day needs before it
-            counts as one of those valid days. The default of 16 h follows the
-            usual wear-time convention in accelerometry studies, which ask for
-            at least 16 hours a day over at least three or four days. Lower it
-            for protocols with shorter expected wear, raise it if you want only
-            near-complete days to count.
+        study_folder: Folder containing the study data.
+        output_folder: Folder where results are saved.
+        tz_str: Study's local timezone.
+        frequency: DAILY and HOURLY_AND_DAILY write daily files.
+            Neither option calculates hourly metrics.
+        time_start: Optional start time in Forest's YYYY-MM-DD HH_MM_SS format.
+        time_end: Optional end time in the same format.
+        users: Participant IDs to process, or None to find them automatically.
+        interval_seconds: Length of each interval, which must divide a day.
+        gravity: Use 1.0 for data in g or about 9.81 for data in m/s².
+        min_valid_days: Minimum number of valid days required.
+        min_valid_hours_per_day: Minimum observed hours per day, default 16.
+            This follows a common wear-time convention and can be adjusted.
 
     Returns:
-        The recording-level summary DataFrame (also written to disk).
+        A DataFrame containing the participant-level rhythm metrics.
+
+    Raises:
+        ValueError: If the interval length is invalid.
     """
+    if interval_seconds <= 0:
+        raise ValueError("interval_seconds must be positive")
+
+    intervals_per_day = SECONDS_IN_DAY / interval_seconds
+
+    if not intervals_per_day.is_integer():
+        raise ValueError(
+            f"interval_seconds={interval_seconds} does not divide "
+            "a 24-hour day evenly"
+        )
+
     os.makedirs(output_folder, exist_ok=True)
+
+    period = int(intervals_per_day)
+
     if users is None:
         users = get_ids_with_accelerometer_data(study_folder)
-    intervals_per_day = SECONDS_IN_DAY // int(interval_seconds)
-    write_daily = frequency in (Frequency.DAILY, Frequency.HOURLY_AND_DAILY)
+
+    save_daily = frequency in (Frequency.DAILY, Frequency.HOURLY_AND_DAILY)
+
     rows: list[dict[str, float | str]] = []
+
     for backend_id in users:
         activity = load_participant_activity(
-            study_folder, backend_id, interval_seconds, tz_str, gravity, time_start, time_end
+            study_folder,
+            backend_id,
+            interval_seconds,
+            tz_str,
+            gravity,
+            time_start,
+            time_end,
         )
+
         if activity.empty:
+            logger.warning("skipping %s: no readable activity data", backend_id)
             continue
+
         values, start = align_to_day_grid(activity, interval_seconds)
-        valid_days = count_valid_days(values, intervals_per_day, min_valid_hours_per_day)
+
+        valid_days = count_valid_days(
+            values, period, min_valid_hours_per_day
+        )
+
         if valid_days < min_valid_days:
             logger.warning(
-                "skipping %s: %.1f valid days (< %.1f)", backend_id, valid_days, min_valid_days
+                "skipping %s: %d valid day(s), need at least %g",
+                backend_id,
+                valid_days,
+                min_valid_days,
             )
             continue
-        compute_rhythm_metrics(rows, backend_id, values, interval_seconds)
-        if write_daily:
+
+        compute_rhythm_metrics(
+            rows, backend_id, values, float(interval_seconds)
+        )
+
+        if save_daily:
             daily = compute_daily_metrics(values, start, interval_seconds)
-            daily.to_csv(pathjoin(output_folder, f"{backend_id}_rar_daily.csv"), index=False)
-    summary = pd.DataFrame(rows)
-    if summary.empty:
-        # No participant met the coverage threshold; still return a frame with the identifier column
-        # so callers can rely on its presence.
-        summary = pd.DataFrame(columns=["backend_id"])
+            filepath = pathjoin(output_folder, f"{backend_id}_rar_daily.csv")
+            daily.to_csv(filepath, index=False)
+
+    columns = [
+        "backend_id",
+        "IS",
+        "IV",
+        "RA",
+        "L5",
+        "M10",
+        "L5_onset_h",
+        "M10_onset_h",
+        "cosinor_mesor",
+        "cosinor_amplitude",
+        "cosinor_acrophase_h",
+        "cosinor_r2",
+        "n_epochs",
+        "n_valid_epochs",
+        "n_days",
+    ]
+
+    summary = pd.DataFrame(rows, columns=columns)
     summary.to_csv(pathjoin(output_folder, "rar_summary.csv"), index=False)
+
     return summary
