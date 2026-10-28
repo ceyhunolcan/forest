@@ -434,3 +434,62 @@ def test_l5_m10_match_cosine_formula():
     assert relative_amplitude(
         windows.l5, windows.m10
     ) == pytest.approx(expected_ra, abs=1e-5)
+
+
+def test_spring_forward_keeps_missing_hour():
+    from forest.oak.circadian_rhythms import align_to_day_grid
+
+    times = pd.to_datetime([
+        "2026-03-08 06:59:00+00:00",
+        "2026-03-08 07:00:00+00:00",
+        "2026-03-08 07:01:00+00:00",
+    ])
+
+    raw = pd.DataFrame({
+        "timestamp": times.as_unit("ms").astype("int64"),
+        "x": [0.0, 0.0, 0.0],
+        "y": [0.0, 0.0, 0.0],
+        "z": [1.1, 1.2, 1.3],
+    })
+
+    activity = compute_enmo_intervals(
+        raw, 60, "America/New_York"
+    )
+    values, start = align_to_day_grid(activity, 60)
+
+    assert start == pd.Timestamp("2026-03-08")
+    assert len(values) == 1440
+
+    assert values[119] == pytest.approx(0.1)
+    assert np.isnan(values[120:180]).all()
+    assert values[180] == pytest.approx(0.2)
+    assert values[181] == pytest.approx(0.3)
+
+
+def test_fall_back_averages_repeated_hour():
+    from forest.oak.circadian_rhythms import align_to_day_grid
+
+    times = pd.to_datetime([
+        "2026-11-01 05:30:00+00:00",
+        "2026-11-01 06:30:00+00:00",
+        "2026-11-01 07:00:00+00:00",
+    ])
+
+    raw = pd.DataFrame({
+        "timestamp": times.as_unit("ms").astype("int64"),
+        "x": [0.0, 0.0, 0.0],
+        "y": [0.0, 0.0, 0.0],
+        "z": [1.1, 1.3, 1.4],
+    })
+
+    activity = compute_enmo_intervals(
+        raw, 60, "America/New_York"
+    )
+    values, start = align_to_day_grid(activity, 60)
+
+    assert start == pd.Timestamp("2026-11-01")
+    assert len(values) == 1440
+
+    assert values[90] == pytest.approx(0.2)
+    assert values[120] == pytest.approx(0.4)
+    assert np.count_nonzero(~np.isnan(values)) == 2
