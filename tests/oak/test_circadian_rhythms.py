@@ -509,3 +509,58 @@ def test_cosinor_phase_is_relative_to_recording_start():
     assert result.amplitude == pytest.approx(0.04, abs=1e-6)
     assert result.acrophase_hours == pytest.approx(8.0, abs=1e-6)
     assert result.r_squared == pytest.approx(1.0, abs=1e-6)
+
+
+def test_run_handles_spring_forward_end_to_end(tmp_path):
+    tz = "America/New_York"
+    start = pd.Timestamp("2026-03-07", tz=tz).tz_convert("UTC")
+    end = pd.Timestamp("2026-03-11", tz=tz).tz_convert("UTC")
+
+    times = pd.date_range(start, end, freq="h", inclusive="left")
+    local_hours = times.tz_convert(tz).hour.to_numpy()
+
+    activity = 0.05 + 0.04 * np.cos(
+        2 * np.pi * (local_hours - 14) / 24
+    )
+
+    raw = pd.DataFrame({
+        "timestamp": times.as_unit("ms").astype("int64"),
+        "x": np.zeros(len(times)),
+        "y": np.zeros(len(times)),
+        "z": 1.0 + activity,
+    })
+
+    acc_dir = tmp_path / "study" / "dst_user" / "accelerometer"
+    acc_dir.mkdir(parents=True)
+    raw.to_csv(acc_dir / "recording.csv", index=False)
+
+    out_dir = tmp_path / "out"
+    summary = run(
+        str(tmp_path / "study"),
+        str(out_dir),
+        tz,
+        frequency=Frequency.DAILY,
+        interval_seconds=3600,
+    )
+
+    assert len(times) == 95
+    assert len(summary) == 1
+    assert summary.iloc[0]["backend_id"] == "dst_user"
+
+    daily = pd.read_csv(out_dir / "dst_user_rar_daily.csv")
+
+    assert daily["date"].tolist() == [
+        "2026-03-07",
+        "2026-03-08",
+        "2026-03-09",
+        "2026-03-10",
+    ]
+
+    assert daily["n_valid_epochs"].tolist() == [
+        24, 23, 24, 24
+    ]
+
+    assert summary.iloc[0]["n_valid_epochs"] == 95
+    assert summary.iloc[0]["cosinor_acrophase_h"] == pytest.approx(
+        14.0, abs=0.1
+    )
