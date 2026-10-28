@@ -580,16 +580,20 @@ def compute_daily_metrics(
 
 
 def get_ids_with_accelerometer_data(study_folder: str) -> list[str]:
-    """List the participant IDs in a study folder that have accelerometer data.
+    """Finds participants who have accelerometer data.
 
-    Builds on forest.utils.get_ids, so the registry folder and hidden folders
-    are excluded, then keeps only the participants who actually have an
-    accelerometer subfolder to read.
+    Uses get_ids to skip hidden and registry folders, then checks
+    which participants have an accelerometer folder.
     """
-    return sorted(
-        backend_id for backend_id in get_ids(study_folder)
+    participant_ids = get_ids(study_folder)
+
+    ids_with_data = [
+        backend_id
+        for backend_id in participant_ids
         if isdir(pathjoin(study_folder, backend_id, ACCELEROMETER_DIR))
-    )
+    ]
+
+    return sorted(ids_with_data)
 
 
 def count_valid_days(
