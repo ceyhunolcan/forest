@@ -23,6 +23,7 @@ from forest.oak.circadian_rhythms import (
     count_valid_days,
     interdaily_stability,
     intradaily_variability,
+    relative_amplitude,
     run,
 )
 
@@ -392,3 +393,44 @@ def test_iv_matches_cosine_formula():
     assert intradaily_variability(hourly_activity) == pytest.approx(
         expected_hourly, rel=1e-3
     )
+
+
+def test_l5_m10_match_cosine_formula():
+    """Checks L5, M10, their onsets and RA against a daily cosine."""
+    hours = _hours(3)
+    mesor = 0.05
+    amplitude = 0.04
+    peak_hour = 14.0
+
+    activity = mesor + amplitude * np.cos(
+        2 * np.pi * (hours - peak_hour) / 24
+    )
+
+    windows = compute_l5_m10(activity, INTERVALS_PER_DAY)
+
+    l5_angle = np.pi * 5 / 24
+    m10_angle = np.pi * 10 / 24
+
+    expected_l5 = mesor - amplitude * np.sin(l5_angle) / l5_angle
+    expected_m10 = mesor + amplitude * np.sin(m10_angle) / m10_angle
+
+    expected_l5_onset = (peak_hour - 12 - 5 / 2) % 24
+    expected_m10_onset = (peak_hour - 10 / 2) % 24
+
+    expected_ra = (
+        (expected_m10 - expected_l5) / (expected_m10 + expected_l5)
+    )
+
+    assert windows.l5 == pytest.approx(expected_l5, abs=1e-5)
+    assert windows.m10 == pytest.approx(expected_m10, abs=1e-5)
+
+    assert windows.l5_onset_hours == pytest.approx(
+        expected_l5_onset, abs=1 / 60
+    )
+    assert windows.m10_onset_hours == pytest.approx(
+        expected_m10_onset, abs=1 / 60
+    )
+
+    assert relative_amplitude(
+        windows.l5, windows.m10
+    ) == pytest.approx(expected_ra, abs=1e-5)
