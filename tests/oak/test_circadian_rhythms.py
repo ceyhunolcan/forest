@@ -371,3 +371,24 @@ def test_is_equals_share_of_pattern_days():
     assert interdaily_stability(
         four_days, INTERVALS_PER_DAY
     ) == pytest.approx(3 / 4)
+
+
+def test_iv_matches_cosine_formula():
+    """Checks IV = 4 sin²(pi * step_hours / 24) for a daily cosine."""
+    minute_hours = _hours(7)
+    minute_activity = 5 + 2 * np.cos(2 * np.pi * minute_hours / 24)
+
+    expected_minute = 4 * np.sin(np.pi * (1 / 60) / 24) ** 2
+
+    assert intradaily_variability(minute_activity) == pytest.approx(
+        expected_minute, rel=1e-3
+    )
+
+    hourly_hours = np.arange(100 * 24)
+    hourly_activity = 5 + 2 * np.cos(2 * np.pi * hourly_hours / 24)
+
+    expected_hourly = 4 * np.sin(np.pi / 24) ** 2
+
+    assert intradaily_variability(hourly_activity) == pytest.approx(
+        expected_hourly, rel=1e-3
+    )
