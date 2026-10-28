@@ -443,11 +443,17 @@ def compute_enmo_intervals(
 
 
 def parse_time_bound(value: str | None, tz_str: str) -> pd.Timestamp | None:
-    """Parse a Beiwe ``%Y-%m-%d %H_%M_%S`` bound into a tz-aware stamp."""
+    """Converts a time string into a timestamp in the study's local timezone.
+
+    Expects Forest's format, like "2018-01-01 00_00_00".
+    Returns None if no time is provided.
+    """
     if value is None:
         return None
-    naive = pd.to_datetime(value, format="%Y-%m-%d %H_%M_%S")
-    return naive.tz_localize(tz_str)
+
+    timestamp = pd.to_datetime(value, format="%Y-%m-%d %H_%M_%S")
+
+    return timestamp.tz_localize(tz_str)
 
 
 def align_to_day_grid(activity: pd.Series, interval_seconds: int) -> tuple[np.ndarray, pd.Timestamp]:
