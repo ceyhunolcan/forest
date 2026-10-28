@@ -464,20 +464,33 @@ def parse_time_bound(value: str | None, tz_str: str) -> pd.Timestamp | None:
     return timestamp.tz_localize(tz_str)
 
 
-def align_to_day_grid(activity: pd.Series, interval_seconds: int) -> tuple[np.ndarray, pd.Timestamp]:
-    """Pad to local-midnight-aligned whole days for interval-of-day folding."""
-    # Assumes 24-hour local days: intervals_per_day is fixed regardless of DST, so
-    # 23-/25-hour transition days are not specially handled (known limitation,
-    # see circadian_rhythms.md).
-    intervals_per_day = SECONDS_IN_DAY // int(interval_seconds)
-    index = pd.DatetimeIndex(activity.index)
-    start = index[0].normalize()
-    end = index[-1].normalize() + pd.Timedelta(days=1)
-    rule = f"{int(interval_seconds)}s"
-    grid = pd.date_range(start, end, freq=rule, tz=index.tz, inclusive="left")
-    values = activity.reindex(grid).to_numpy(dtype=float)
-    usable = (values.size // intervals_per_day) * intervals_per_day
-    return values[:usable], start
+def align_to_day_grid(
+    activity: pd.Series,
+    interval_seconds: int,
+) -> tuple[np.ndarray, pd.Timestamp]:
+    """Pads activity into complete days starting at local midnight.
+
+    Wall-clock time keeps each day the same length.
+    Raises ValueError if the activity data is empty.
+    """
+    if activity.empty:
+        raise ValueError("Activity data is empty")
+
+    times = pd.DatetimeIndex(activity.index)
+
+    start = times[0].normalize()
+    end = times[-1].normalize() + pd.Timedelta(days=1)
+
+    grid = pd.date_range(
+        start,
+        end,
+        freq=f"{int(interval_seconds)}s",
+        inclusive="left",
+    )
+
+    aligned = activity.reindex(grid)
+
+    return aligned.to_numpy(dtype=float), start
 
 
 def find_clock_change_dates(
