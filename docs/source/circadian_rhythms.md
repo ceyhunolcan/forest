@@ -146,7 +146,7 @@ This example is synthetic, with three identical, completely observed days at
 one-minute intervals. Activity follows `0.05 + 0.04*cos(2*pi*(hour-14)/24)`.
 The following excerpt from `rar_summary.csv` is rounded for display:
 
-```csv
+```text
 backend_id,IS,IV,RA,L5,M10,L5_onset_h,M10_onset_h,cosinor_mesor,cosinor_amplitude,cosinor_acrophase_h,cosinor_r2,n_epochs,n_valid_epochs,n_days
 example,1.000000,0.000019,0.722781,0.012795,0.079516,23.5,9.0,0.05,0.04,14.0,1.0,4320,4320,3.0
 ```
@@ -161,7 +161,7 @@ For each of these three dates the daily file contains the same metric values
 except IS and recording-level counts, which are omitted. Its count is 1440
 rather than 4320. For example, selected daily columns read:
 
-```csv
+```text
 date,IV,RA,L5,M10,L5_onset_h,M10_onset_h,cosinor_acrophase_h,n_valid_epochs
 2026-03-01,0.000019,0.722781,0.012795,0.079516,23.5,9.0,14.0,1440
 ```
