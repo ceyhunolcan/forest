@@ -1,21 +1,22 @@
-"""Rest-activity rhythm (RAR) metrics for the accelerometer (Oak) tree.
+"""Calculates rest-activity rhythms from Beiwe accelerometer data.
 
-Derives circadian rest-activity summaries from Beiwe accelerometer data: interdaily stability (IS),
-intradaily variability (IV), relative amplitude (RA) with L5/M10, and a single-component 24 h
-cosinor fit (MESOR, amplitude, acrophase, R^2).
+Uses Euclidean Norm Minus One (ENMO) activity to calculate interdaily
+stability (IS), intradaily variability (IV), relative amplitude (RA),
+the least active 5 hours (L5), the most active 10 hours (M10), and a
+24-hour cosinor fit.
 
-These complement oak's gait/step outputs: the same raw accelerometer stream, a different (24 h
-patterning) question. Activity is summarised per fixed interval as ENMO -- the Euclidean norm of the
-acceleration vector minus one gravitational unit, clipped at zero -- which is the standard
-actigraphy proxy for movement intensity.
+Unlike Oak's gait analysis, this module looks at daily activity
+patterns rather than walking.
 
-The public entry point ``run`` mirrors ``forest.oak.runners.run``. It writes a recording-level
-``rar_summary.csv`` (one row per participant) and, when a daily frequency is requested,
-per-participant ``<backend_id>_rar_daily.csv`` files holding the day-decomposable metrics.
+Results are saved in rar_summary.csv, with optional daily files named
+<backend_id>_rar_daily.csv.
+
+Activity uses local wall-clock time. Missing spring hours remain NaN,
+while repeated fall hours are averaged into the same clock intervals.
 
 References:
     Van Someren EJW, et al. Chronobiol Int 16(4):505-518 (1999).
-    Goncalves BSB, et al. Sleep Sci 7(3):158-164 (2014).
+    Gonçalves BSB, et al. Sleep Sci 7(3):158-164 (2014).
     Cornelissen G. Theor Biol Med Model 11:16 (2014).
 """
 from __future__ import annotations
@@ -35,12 +36,27 @@ from forest.utils import get_ids
 logger = logging.getLogger(__name__)
 
 ACCELEROMETER_DIR = "accelerometer"
-# Coverage a single day needs before the daily file reports metrics for it. This is
-# deliberately looser than run()'s min_valid_hours_per_day, which decides whether a
-# participant's recording-level summary is reported at all.
+
+# Daily metrics need at least half the data available.
+# This is a reporting cutoff, separate from run()'s valid-day requirement.
 MIN_DAY_COVERAGE = 0.5
-L5_WINDOW_HOURS = 5     # the "5" in L5: width of the least-active window
-M10_WINDOW_HOURS = 10   # the "10" in M10: width of the most-active window
+
+# Hours used for the least and most active windows.
+L5_WINDOW_HOURS = 5
+M10_WINDOW_HOURS = 10
+
+# Keep the CSV column order consistent across output files.
+SUMMARY_COLUMNS: list[str] = [
+    "backend_id", "IS", "IV", "RA", "L5", "M10", "L5_onset_h", "M10_onset_h",
+    "cosinor_mesor", "cosinor_amplitude", "cosinor_acrophase_h", "cosinor_r2",
+    "n_epochs", "n_valid_epochs", "n_days",
+]
+
+DAILY_COLUMNS: list[str] = [
+    "date", "IV", "RA", "L5", "M10", "L5_onset_h", "M10_onset_h",
+    "cosinor_mesor", "cosinor_amplitude", "cosinor_acrophase_h", "cosinor_r2",
+    "n_valid_epochs",
+]
 
 
 def as_float_array(values: np.ndarray) -> np.ndarray:
@@ -660,22 +676,8 @@ def compute_daily_metrics(
             "n_valid_epochs": observed_count,
         })
 
-    columns = [
-        "date",
-        "IV",
-        "RA",
-        "L5",
-        "M10",
-        "L5_onset_h",
-        "M10_onset_h",
-        "cosinor_mesor",
-        "cosinor_amplitude",
-        "cosinor_acrophase_h",
-        "cosinor_r2",
-        "n_valid_epochs",
-    ]
 
-    return pd.DataFrame(rows, columns=columns)
+    return pd.DataFrame(rows, columns=DAILY_COLUMNS)
 
 
 def get_ids_with_accelerometer_data(study_folder: str) -> list[str]:
@@ -822,25 +824,8 @@ def run(
             filepath = pathjoin(output_folder, f"{backend_id}_rar_daily.csv")
             daily.to_csv(filepath, index=False)
 
-    columns = [
-        "backend_id",
-        "IS",
-        "IV",
-        "RA",
-        "L5",
-        "M10",
-        "L5_onset_h",
-        "M10_onset_h",
-        "cosinor_mesor",
-        "cosinor_amplitude",
-        "cosinor_acrophase_h",
-        "cosinor_r2",
-        "n_epochs",
-        "n_valid_epochs",
-        "n_days",
-    ]
 
-    summary = pd.DataFrame(rows, columns=columns)
+    summary = pd.DataFrame(rows, columns=SUMMARY_COLUMNS)
     summary.to_csv(pathjoin(output_folder, "rar_summary.csv"), index=False)
 
     return summary
