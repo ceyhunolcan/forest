@@ -405,41 +405,49 @@ def read_accelerometer_file(filepath: str) -> pd.DataFrame:
 
 
 def compute_enmo_intervals(
-    data_frame: pd.DataFrame, interval_seconds: int, tz_str: str, gravity: float = 1.0
+    data_frame: pd.DataFrame,
+    interval_seconds: int,
+    tz_str: str,
+    gravity: float = 1.0,
 ) -> pd.Series:
-    """Mean ENMO per fixed interval on a gap-filled, tz-local grid.
+    """Calculates average ENMO for each local clock-time interval.
 
-    ENMO is ``max(|a| / gravity - 1, 0)`` per sample. Set ``gravity`` to the
-    numeric value of 1 g in the data's units (1.0 for g, ~9.81 for m/s^2).
+    ENMO is Euclidean Norm Minus One: acceleration magnitude divided by
+    gravity, minus one, with negative values set to zero.
+
+    Uses local wall-clock times so days keep the same clock positions.
+    Missing spring hours stay NaN, and repeated fall hours are averaged.
 
     Args:
-        data_frame: Raw Beiwe accelerometer rows (``timestamp`` in ms UTC or
-            a ``UTC time`` column, plus ``x``/``y``/``z``; case-insensitive).
-        interval_seconds: Interval length in seconds.
-        tz_str: IANA timezone for localisation, e.g. ``America/New_York``.
-        gravity: Value of 1 g in the data's units.
+        data_frame: Accelerometer data with x, y, and z values.
+        interval_seconds: Length of each interval in seconds.
+        tz_str: Study's local timezone.
+        gravity: Use 1.0 for data in g or about 9.81 for data in m/s².
 
     Returns:
-        Activity Series indexed by tz-aware interval-start timestamps, spanning
-        the first to last observed interval with missing intervals set to NaN.
+        Average ENMO indexed by local times without timezone information.
     """
     if data_frame.empty:
         return pd.Series(dtype=float)
+
     columns = find_axis_columns(data_frame)
-    for axis in ("x", "y", "z"):
-        if axis not in columns:
-            raise ValueError(f"missing accelerometer axis '{axis}'")
+
+    if not {"x", "y", "z"}.issubset(columns):
+        raise ValueError("Missing accelerometer axis columns")
+
     x = data_frame[columns["x"]].to_numpy(dtype=float)
     y = data_frame[columns["y"]].to_numpy(dtype=float)
     z = data_frame[columns["z"]].to_numpy(dtype=float)
-    magnitude = np.sqrt(x ** 2 + y ** 2 + z ** 2) / float(gravity)
-    enmo = np.clip(magnitude - 1.0, 0.0, None)
-    series = pd.Series(enmo, index=build_utc_index(data_frame)).sort_index()
-    series = series.tz_convert(tz_str)
-    rule = f"{int(interval_seconds)}s"
-    interval_means = series.resample(rule).mean()
-    grid = pd.date_range(interval_means.index.min(), interval_means.index.max(), freq=rule, tz=tz_str)
-    return interval_means.reindex(grid)
+
+    magnitude = np.sqrt(x**2 + y**2 + z**2)
+    enmo = np.clip(magnitude / gravity - 1, 0, None)
+
+    times = build_utc_index(data_frame)
+    activity = pd.Series(enmo, index=times).sort_index()
+
+    local_activity = activity.tz_convert(tz_str).tz_localize(None)
+
+    return local_activity.resample(f"{int(interval_seconds)}s").mean()
 
 
 def parse_time_bound(value: str | None, tz_str: str) -> pd.Timestamp | None:
@@ -472,6 +480,37 @@ def align_to_day_grid(activity: pd.Series, interval_seconds: int) -> tuple[np.nd
     return values[:usable], start
 
 
+def find_clock_change_dates(
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    tz_str: str,
+) -> list[str]:
+    """Finds dates when clock changes make a day shorter or longer.
+
+    Accepts local wall-clock or timezone-aware timestamps.
+    Returns ISO date strings for reporting daylight saving changes.
+    """
+    start_date = start.tz_convert(tz_str).date() if start.tzinfo else start.date()
+    end_date = end.tz_convert(tz_str).date() if end.tzinfo else end.date()
+
+    dates = pd.date_range(
+        start_date,
+        pd.Timestamp(end_date) + pd.Timedelta(days=1),
+        freq="D",
+    )
+
+    midnights = dates.tz_localize(tz_str)
+    day_lengths = midnights[1:] - midnights[:-1]
+
+    changed_dates: list[str] = []
+
+    for day, length in zip(dates[:-1], day_lengths):
+        if length != pd.Timedelta(hours=24):
+            changed_dates.append(day.date().isoformat())
+
+    return changed_dates
+
+
 def load_participant_activity(
     study_folder: str,
     backend_id: str,
@@ -481,27 +520,74 @@ def load_participant_activity(
     time_start: str | None,
     time_end: str | None,
 ) -> pd.Series:
-    """Read, concatenate and interval-average one participant's accelerometer data."""
-    acc_dir = pathjoin(study_folder, backend_id, ACCELEROMETER_DIR)
-    if not isdir(acc_dir):
+    """Loads a participant's accelerometer data in local wall-clock time.
+
+    Skips unreadable files and applies optional time bounds.
+    Warns when daylight saving changes affect the recording.
+
+    Args:
+        study_folder: Folder containing the study data.
+        backend_id: Identifier for the participant.
+        interval_seconds: Length of each activity interval in seconds.
+        tz_str: Study's local timezone.
+        gravity: Use 1.0 for data in g or about 9.81 for data in m/s².
+        time_start: Optional start time in Forest's date format.
+        time_end: Optional end time in Forest's date format.
+
+    Returns:
+        Activity values indexed by local wall-clock times.
+    """
+    folder = pathjoin(study_folder, backend_id, ACCELEROMETER_DIR)
+
+    if not isdir(folder):
         return pd.Series(dtype=float)
-    files = sorted(f for f in os.listdir(acc_dir) if f.endswith(".csv"))
+
     frames: list[pd.DataFrame] = []
-    for filename in files:
+
+    for filename in sorted(os.listdir(folder)):
+        if not filename.lower().endswith(".csv"):
+            continue
+
+        filepath = pathjoin(folder, filename)
+
         try:
-            frames.append(read_accelerometer_file(pathjoin(acc_dir, filename)))
-        except (ValueError, pd.errors.EmptyDataError, pd.errors.ParserError):
-            logger.warning("skipping unreadable file %s", filename)
+            frame = read_accelerometer_file(filepath)
+        except (ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as error:
+            logger.warning("skipping %s: %s", filepath, error)
+            continue
+
+        frames.append(frame)
+
     if not frames:
         return pd.Series(dtype=float)
-    raw = pd.concat(frames, ignore_index=True)
-    activity = compute_enmo_intervals(raw, interval_seconds, tz_str, gravity)
-    lower = parse_time_bound(time_start, tz_str)
-    upper = parse_time_bound(time_end, tz_str)
-    if lower is not None:
-        activity = activity[activity.index >= lower]
-    if upper is not None:
-        activity = activity[activity.index <= upper]
+
+    combined = pd.concat(frames, ignore_index=True)
+    activity = compute_enmo_intervals(combined, interval_seconds, tz_str, gravity)
+
+    start_bound = parse_time_bound(time_start, tz_str)
+    end_bound = parse_time_bound(time_end, tz_str)
+
+    if start_bound is not None:
+        activity = activity[activity.index >= start_bound.tz_localize(None)]
+
+    if end_bound is not None:
+        activity = activity[activity.index <= end_bound.tz_localize(None)]
+
+    if not activity.empty:
+        changed_dates = find_clock_change_dates(
+            pd.Timestamp(activity.index[0]),
+            pd.Timestamp(activity.index[-1]),
+            tz_str,
+        )
+
+        if changed_dates:
+            logger.warning(
+                "Participant %s has clock changes on %s. "
+                "Missing spring hours remain NaN and repeated fall hours are averaged.",
+                backend_id,
+                ", ".join(changed_dates),
+            )
+
     return activity
 
 
