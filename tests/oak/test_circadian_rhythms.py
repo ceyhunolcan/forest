@@ -11,10 +11,20 @@ import pandas as pd
 import pytest
 
 from forest.constants import Frequency
-from forest.oak.circadian_rhythms import (compute_average_day_profile, count_valid_days,
-    compute_enmo_intervals, compute_l5_m10, compute_rhythm_metrics, cosinor,
-    interdaily_stability, intradaily_variability, run)
-
+from forest.oak.circadian_rhythms import (
+    DAILY_COLUMNS,
+    SUMMARY_COLUMNS,
+    compute_average_day_profile,
+    compute_daily_metrics,
+    compute_enmo_intervals,
+    compute_l5_m10,
+    compute_rhythm_metrics,
+    cosinor,
+    count_valid_days,
+    interdaily_stability,
+    intradaily_variability,
+    run,
+)
 
 INTERVAL_SECONDS = 60
 INTERVALS_PER_DAY = 86_400 // INTERVAL_SECONDS
@@ -318,3 +328,28 @@ def test_count_valid_days_is_inclusive_at_the_threshold():
 
     assert count_valid_days(exactly_sixteen, intervals_per_day, 16.0) == 3
     assert count_valid_days(just_under, intervals_per_day, 16.0) == 0
+
+
+def test_summary_row_uses_summary_columns():
+    """Checks that summary fields match the expected column order."""
+    hours = _hours(3)
+    activity = 1.0 + np.cos(2 * np.pi * hours / 24)
+
+    rows: list[dict[str, float | str]] = []
+    compute_rhythm_metrics(rows, "test", activity, INTERVAL_SECONDS)
+
+    assert len(rows) == 1
+    assert list(rows[0]) == SUMMARY_COLUMNS
+
+
+def test_daily_file_keeps_its_columns_when_every_day_is_short():
+    """Keeps all daily columns even when every day has no valid data."""
+    values = np.full(2 * INTERVALS_PER_DAY, np.nan)
+    start = pd.Timestamp("2026-03-01")
+
+    daily = compute_daily_metrics(values, start, INTERVAL_SECONDS)
+
+    assert list(daily.columns) == DAILY_COLUMNS
+    assert len(daily) == 2
+    assert daily["n_valid_epochs"].tolist() == [0, 0]
+    assert daily["date"].tolist() == ["2026-03-01", "2026-03-02"]
