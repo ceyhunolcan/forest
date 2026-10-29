@@ -195,8 +195,7 @@ def test_run_skips_participants_below_min_valid_days(tmp_path, rng):
 
 
 def test_run_time_bounds_clip_data(tmp_path, rng):
-    """time_start/time_end restrict the window; clipping below min_valid_days then skips the
-    participant."""
+    """Clipping a recording below the valid-day threshold skips the participant."""
     study = tmp_path / "study"
     _write_participant(study / "rich" / "accelerometer", "2026-03-01 00:00:00", 5, 2, rng)
     unbounded = run(
@@ -219,17 +218,11 @@ def test_run_time_bounds_clip_data(tmp_path, rng):
 
 
 def test_intradaily_variability_normalizes_over_valid_pairs():
-    """IV with gaps must divide each sum by the count of terms that actually
-    contributed, not by the raw interval count.
+    """IV uses the number of observed pairs, not all intervals.
 
-    An alternating 0, 2, 0, 2, ... series has every squared successive
-    difference equal to 4 and variance 1, so its IV is exactly 4.0. Dropping
-    one 0 and one 2 (equal counts, so the mean stays 1.0) leaves every
-    surviving pair at squared-difference 4 and every present point at deviation
-    1, so IV must remain exactly 4.0 under valid-pairs normalization. The
-    pre-fix formula divides the gap-reduced numerator by the full interval count
-    and so returns a biased value below 4.0.
-    """
+    An alternating 0, 2 signal has squared differences of 4
+    and variance of 1, giving IV = 4. Removing equal numbers
+    of zeros and twos should leave that result unchanged."""
     base = np.array([0.0, 2.0] * 12)          # 24 intervals; even idx 0, odd idx 2
     assert intradaily_variability(base) == pytest.approx(4.0)
 
@@ -240,12 +233,7 @@ def test_intradaily_variability_normalizes_over_valid_pairs():
 
 
 def test_average_day_profile_leaves_unobserved_positions_nan():
-    """An unobserved clock position must stay NaN in the profile.
-
-    The profile used to be filled in with the mean of the observed positions,
-    which made a part of the day nobody was recorded during look as active as
-    the rest and pulled L5 and the relative amplitude with it.
-    """
+    """Unobserved clock positions remain NaN in the average-day profile."""
     quiet_then_active = np.concatenate([np.full(8, 1.0), np.full(16, 10.0)])
     gappy = quiet_then_active.copy()
     gappy[3] = np.nan
@@ -256,14 +244,11 @@ def test_average_day_profile_leaves_unobserved_positions_nan():
 
 
 def test_l5_m10_skips_windows_that_overlap_a_gap():
-    """L5 and M10 come only from windows where every position was observed.
+    """L5 and M10 use only fully observed windows.
 
-    With hour 3 missing, every 5-hour window that covers it is undefined, so
-    the earliest complete quiet window starts at hour 4 and has to reach into
-    the active part of the day: four quiet hours and one active hour give
-    (1 + 1 + 1 + 1 + 10) / 5 = 2.8. Reporting 1.0 here would mean reading a
-    value off a position that was never recorded.
-    """
+    With hour 3 missing, the first complete five-hour window
+    begins at hour 4. Four quiet hours and one active hour
+    give an L5 mean of (1 + 1 + 1 + 1 + 10) / 5 = 2.8."""
     quiet_then_active = np.concatenate([np.full(8, 1.0), np.full(16, 10.0)])
 
     complete = compute_l5_m10(quiet_then_active, 24)
@@ -293,13 +278,10 @@ def test_l5_m10_undefined_when_no_window_is_complete():
 
 
 def test_count_valid_days_requires_each_day_to_qualify_on_its_own():
-    """Partial days must not add up to whole ones.
+    """Each day must independently meet the coverage threshold.
 
-    Six days recorded for twelve hours each used to count as three valid days,
-    because the old check totalled every observed interval in the recording
-    and divided by the length of a day. None of those six days is adequately
-    covered, so none of them should count.
-    """
+    Six days with 12 observed hours each must not count as
+    three fully covered days."""
     intervals_per_day = INTERVALS_PER_DAY
 
     six_half_days = np.full(6 * intervals_per_day, np.nan)

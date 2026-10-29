@@ -35,37 +35,28 @@ Other `Frequency` values write only the recording-level summary. This module
 uses the shared Forest enum, whose names describe other analyses too.
 
 ### Default tuning parameters
+
 ```python
-# interval length in seconds; must divide a 24-hour day evenly - interval_seconds
-# (this is the length of one interval, not the count per day: the number of
-# intervals in a 24-hour day is 86_400 / interval_seconds, e.g. 1440 at 60 s)
-interval_seconds = 60
-
-# numeric value of 1 g in the data's units (1.0 if the accelerometer is
-# already in g, consistent with oak; ~9.81 if the data are in m/s^2) - gravity
-gravity = 1.0
-
-# participants with fewer valid days than this are skipped - min_valid_days
-min_valid_days = 3
-
-# each counted day must have at least this many observed hours
-min_valid_hours_per_day = 16.0
+interval_seconds = 60           # Seconds per interval; must divide 86,400
+gravity = 1.0                   # Use ~9.81 for acceleration in m/s²
+min_valid_days = 3              # Minimum number of qualifying days
+min_valid_hours_per_day = 16.0  # Observed hours required per day
 ```
 
-A day counts once only when its own observations reach 16 hours. Six days
-with 12 hours each therefore do not pass the default three-day requirement.
-The 16-hour default follows the reviewer's suggested inclusion convention;
-it is adjustable, rather than a validated threshold for smartphone sensing.
-For a near-complete-day protocol, use 24 hours; a protocol expecting shorter
-observation may need a lower threshold and a sensitivity analysis.
+Each day must independently meet the 16-hour threshold. For example, six
+days with 12 hours of data each do not count as three valid days.
 
-Daily output has a separate, more permissive rule: a date needs at least 12
-observed hours (`MIN_DAY_COVERAGE = 0.5`) to receive daily metrics. Dates below
-that threshold retain their date and count, with metric cells left blank.
-This 12-hour rule is a reporting choice, not an evidence-based inclusion
-criterion. Passing the participant gate allows all its observed intervals
-on ordinary 24-hour days to enter the recording-level metrics, including
-intervals from days below the 16-hour inclusion threshold.
+These are configurable coverage thresholds, not validated smartphone
+wear-time criteria. Studies with different recording protocols may need
+different thresholds and sensitivity checks.
+
+Daily output uses a separate 12-hour cutoff (`MIN_DAY_COVERAGE = 0.5`).
+Days below this cutoff still appear in the daily file, but their metric
+values are left blank.
+
+Once a participant meets the inclusion requirement, recording-level
+metrics use all available intervals, including observations from days
+that did not individually reach 16 hours.
 
 ## Activity metric
 
@@ -101,23 +92,23 @@ period that says little about the participant's activity.
 The recording-level output is written to `rar_summary.csv` with one row per
 participant. The following variables are created:
 
-|     Variable            	|     Type     	|     Description of Variable                                                            	|
-|-------------------------	|--------------	|----------------------------------------------------------------------------------------	|
-|     backend_id          	|       str     	|     Beiwe backend identifier of the participant                                        	|
-|     IS                  	|      float    	|     Interdaily stability, in (0, 1]; higher means a more reproducible daily pattern    	|
-|     IV                  	|      float    	|     Intradaily variability, typically in [0, ~2]; higher means more fragmentation      	|
-|     RA                  	|      float    	|     Relative amplitude, (M10 - L5) / (M10 + L5)                                         	|
-|     L5                  	|      float    	|     Mean activity over the least-active 5 hours of the average day                     	|
-|     M10                 	|      float    	|     Mean activity over the most-active 10 hours of the average day                     	|
-|     L5_onset_h          	|      float    	|     Clock hour at which the L5 window starts                                           	|
-|     M10_onset_h         	|      float    	|     Clock hour at which the M10 window starts                                          	|
-|     cosinor_mesor       	|      float    	|     MESOR (rhythm-adjusted mean) of the 24 h cosinor fit                               	|
-|     cosinor_amplitude   	|      float    	|     Amplitude of the 24 h cosinor fit                                                  	|
-|     cosinor_acrophase_h 	|      float    	|     Clock hour of the fitted peak, in [0, 24)                                          	|
-|     cosinor_r2          	|      float    	|     Coefficient of determination of the cosinor fit                                    	|
-|     n_epochs            	|       int     	|     Number of intervals on the day-aligned grid                                           	|
-|     n_valid_epochs      	|       int     	|     Number of non-missing intervals                                                    	|
-|     n_days              	|      float    	|     Number of days spanned by the recording                                            	|
+| Variable | Type | Description of Variable |
+| --- | --- | --- |
+| backend_id | str | Beiwe backend identifier of the participant |
+| IS | float | Interdaily stability, in (0, 1]; higher means a more reproducible daily pattern |
+| IV | float | Intradaily variability; higher values indicate more rapid activity changes |
+| RA | float | Relative amplitude, (M10 - L5) / (M10 + L5) |
+| L5 | float | Mean activity over the least-active 5 hours of the average day |
+| M10 | float | Mean activity over the most-active 10 hours of the average day |
+| L5_onset_h | float | Clock hour at which the L5 window starts |
+| M10_onset_h | float | Clock hour at which the M10 window starts |
+| cosinor_mesor | float | MESOR (rhythm-adjusted mean) of the 24 h cosinor fit |
+| cosinor_amplitude | float | Amplitude of the 24 h cosinor fit |
+| cosinor_acrophase_h | float | Clock hour of the fitted peak, in [0, 24) |
+| cosinor_r2 | float | Coefficient of determination of the cosinor fit |
+| n_epochs | int | Number of intervals on the day-aligned grid |
+| n_valid_epochs | int | Number of non-missing intervals |
+| n_days | float | Number of days spanned by the recording |
 
 ### Daily summary
 
@@ -125,20 +116,20 @@ When `frequency` is `Frequency.DAILY` or `Frequency.HOURLY_AND_DAILY`, a
 per-participant `<backend_id>_rar_daily.csv` is also written with the
 day-decomposable metrics (IS is recording-level only and is omitted):
 
-|     Variable            	|     Type     	|     Description of Variable                                                	|
-|-------------------------	|--------------	|----------------------------------------------------------------------------	|
-|     date                	|       str     	|     Day of observation (yyyy-mm-dd)                                        	|
-|     IV                  	|      float    	|     Intradaily variability for the day                                     	|
-|     RA                  	|      float    	|     Relative amplitude for the day                                         	|
-|     L5                  	|      float    	|     Least-active 5-hour mean for the day                                   	|
-|     M10                 	|      float    	|     Most-active 10-hour mean for the day                                   	|
-|     L5_onset_h          	|      float    	|     Clock hour at which the L5 window starts                               	|
-|     M10_onset_h         	|      float    	|     Clock hour at which the M10 window starts                              	|
-|     cosinor_mesor       	|      float    	|     MESOR of the day's cosinor fit                                         	|
-|     cosinor_amplitude   	|      float    	|     Amplitude of the day's cosinor fit                                     	|
-|     cosinor_acrophase_h 	|      float    	|     Clock hour of the day's fitted peak                                    	|
-|     cosinor_r2          	|      float    	|     Coefficient of determination of the day's cosinor fit                  	|
-|     n_valid_epochs      	|       int     	|     Number of non-missing intervals in the day                               	|
+| Variable | Type | Description of Variable |
+| --- | --- | --- |
+| date | str | Day of observation (yyyy-mm-dd) |
+| IV | float | Intradaily variability for the day |
+| RA | float | Relative amplitude for the day |
+| L5 | float | Least-active 5-hour mean for the day |
+| M10 | float | Most-active 10-hour mean for the day |
+| L5_onset_h | float | Clock hour at which the L5 window starts |
+| M10_onset_h | float | Clock hour at which the M10 window starts |
+| cosinor_mesor | float | MESOR of the day's cosinor fit |
+| cosinor_amplitude | float | Amplitude of the day's cosinor fit |
+| cosinor_acrophase_h | float | Clock hour of the day's fitted peak |
+| cosinor_r2 | float | Coefficient of determination of the day's cosinor fit |
+| n_valid_epochs | int | Number of non-missing intervals in the day |
 
 ### Worked output example
 
@@ -166,45 +157,47 @@ date,IV,RA,L5,M10,L5_onset_h,M10_onset_h,cosinor_acrophase_h,n_valid_epochs
 2026-03-01,0.000019,0.722781,0.012795,0.079516,23.5,9.0,14.0,1440
 ```
 
-The CSV column names `n_epochs` and `n_valid_epochs` are retained pending the
-maintainer's answer about renaming output fields. They count intervals, with
-no difference in meaning from `interval_seconds`. Likewise, `rar` in the
-filenames abbreviates rest-activity rhythm; it does not indicate an archive.
-`n_days` counts the padded calendar-day span, including missing dates and
-dates with daylight-saving changes, rather than the number meeting the inclusion threshold.
+`n_epochs` counts intervals on the aligned recording grid, while
+`n_valid_epochs` counts intervals with observed activity. These are
+counts, whereas `interval_seconds` specifies the duration of each
+interval.
+
+`n_days` counts the calendar days spanned by the aligned recording,
+including days with missing data or daylight-saving changes. It is
+not the number of days that passed the inclusion threshold.
+
+The existing CSV field names and `rar` filenames are retained
+pending maintainer feedback.
 
 ## Reading the output
 
-Interdaily stability (IS) says how consistently the activity pattern repeats at
-the same clock times across days. It sits near 1 when the same daily pattern
-repeats almost exactly and near `1/n_days` when activity is independent random
-noise, with no repeatable daily pattern.
+Interdaily stability (IS) measures how consistently the same activity
+pattern repeats across days. Identical daily patterns give IS = 1.
+Independent random activity tends toward approximately `1/n_days`
+when the days are complete.
 
-Intradaily variability (IV) says how fragmented activity is within a day,
-measured by changes between consecutive samples relative to overall
-variability. White noise sits at about 2. A smooth 24-hour sinusoidal pattern
-falls towards 0, and how far depends on the sampling interval: about 0.07 at
-hourly intervals, almost nothing at one-minute intervals.
+Intradaily variability (IV) measures changes between consecutive
+observed intervals relative to overall activity variance. Smooth
+rhythms have low IV, while independent random noise approaches 2.
+Rapidly alternating activity can produce values above 2, including
+IV = 4 for a regularly alternating series. IV also depends on the
+sampling interval.
 
-Lower IS and higher IV together mean a less consistent daily rhythm with more
-abrupt fluctuations within each day.
+Relative amplitude (RA) compares the most active ten-hour period
+(M10) with the least active five-hour period (L5) of the average day.
+Their onset times describe recorded activity, not necessarily
+sleep and wake times.
 
-Relative amplitude (RA) compares the busiest ten-hour mean with the quietest
-five-hour mean. Larger values indicate a stronger contrast in the observed
-data, but neither RA nor the L5/M10 onsets identify sleep. The cosinor MESOR
-is the fitted mean, amplitude is half the fitted peak-to-trough range, and
-acrophase is the fitted peak's local clock hour. A low cosinor R² means that
-a single smooth 24-hour wave explains little of the recorded variability;
-its peak time may then be uninformative.
+The cosinor fit provides the fitted mean (MESOR), amplitude,
+peak time (acrophase), and R-squared. When R-squared is low or
+amplitude is close to zero, the estimated peak time may not be
+meaningful.
 
-Check coverage before interpreting an unusual value. Constant activity over
-24 hours warrants inspecting the raw stream: a flat signal has no activity
-variance, so IS and IV are undefined, while cosinor amplitude is near zero
-and its phase has no useful interpretation. All-zero activity also makes RA
-undefined. Blank CSV cells represent undefined metrics, not zero activity.
-A missing nighttime region can prevent estimating the quietest window, or
-force L5 onto a different fully observed window. Compare sampling intervals,
-coverage patterns, and device units before comparing participants.
+Missing data can affect all these estimates, particularly when
+gaps occur at the same clock times each day. Undefined metrics
+appear as blank cells in the CSV output, not zeros. Check coverage,
+sampling intervals, and acceleration units before comparing
+participants.
 
 These metrics have been studied in relation to mortality in prospective
 cohorts. Xu et al. found that only one of the two held up in NHANES (n=7,252,
@@ -221,18 +214,38 @@ measures, not validated standalone mortality predictors.
 
 ### Data-problem signals
 
-Check coverage before interpreting unusual values. These patterns warrant inspecting the raw accelerometer data:
+These metrics describe recorded phone movement, not confirmed device wear
+or sleep. Check the raw data and processing logs when:
 
-* Flat activity throughout the day. A constant signal may reflect a stationary phone or a recording problem. With no activity variance, IS and IV are undefined. Cosinor amplitude is approximately zero, and its reported peak time has no useful interpretation. All-zero activity also makes RA undefined; constant non-zero activity gives RA = 0.
-* Near-zero activity with irregular fluctuations. A stationary phone can still record sensor noise. If that noise varies independently between intervals, IV can be near 2 and IS near `1/n_days`, about 0.14 over seven days, with cosinor amplitude and R² near zero. A synthetic noise example produces this pattern; it is not a validated way to identify a stationary phone. Check the raw stream before interpreting it as a participant’s irregular activity.
-* A participant missing from `rar_summary.csv`. Check the processing logs. Participants with fewer than `min_valid_days` days meeting `min_valid_hours_per_day` are skipped with a warning. The defaults require at least three days with 16 observed hours each.
-* Blank metric cells. These represent undefined or unavailable estimates, not zero activity. Daily metrics are blank for dates with fewer than 12 observed hours (`MIN_DAY_COVERAGE = 0.5`). L5, M10, their onset hours, and RA are also blank when either window lacks a complete candidate.
-* Gaps at recurring clock times. Missing nighttime observations can exclude the true quietest window and shift L5 to another observed period. Recording-level windows use an average-day profile: each clock position needs an observation on at least one day, but there is no minimum number of contributing days per position.
-* High coverage despite sparse sampling. An interval counts as observed with just one valid sample. Check raw sample counts and gaps; coverage does not establish continuous recording or that the participant carried the phone.
-* Unexpected differences between recordings, including iOS and Android. Check acceleration units, the `gravity` setting, sampling intervals, and missingness patterns before interpreting differences as participant behaviour.
+- **Activity is flat or nearly stationary.** A phone left in one place may
+  produce little movement or mostly sensor noise. Constant activity makes
+  IS and IV undefined, while an all-zero signal also makes RA undefined.
+  Noise can produce high IV and low IS without reflecting actual activity.
 
-A low cosinor R² alone does not establish a data problem: the activity pattern may simply fit a single 24-hour wave poorly. Likewise, a strong apparent rhythm can reflect when someone carries or sets down their phone. These summaries describe recorded phone movement; they do not independently establish sleep or device wear.
+- **A participant is missing from `rar_summary.csv`.** Check the processing
+  logs and coverage requirements. By default, participants need at least
+  three days with 16 observed hours each.
 
+- **Metric values are blank.** These indicate unavailable or undefined
+  estimates, not zero activity. Daily metrics require 12 observed hours.
+  L5 and M10 also require fully observed candidate windows.
+
+- **Gaps occur at similar times each day.** Missing nighttime data may
+  exclude the quietest activity window or shift the estimated L5 onset.
+  Each position in the average-day profile needs at least one observation,
+  but the number of contributing days can differ between positions.
+
+- **Coverage looks high despite sparse recording.** An interval counts as
+  observed even if it contains only one valid accelerometer sample.
+  Coverage alone does not confirm continuous recording or device wear.
+
+- **Results differ unexpectedly across recordings.** Check acceleration
+  units, the `gravity` setting, sampling intervals, and missing-data
+  patterns. Compare iOS and Android recordings separately before
+  interpreting platform differences as behavioral differences.
+
+A low cosinor R² does not necessarily indicate bad data. It may simply
+mean that a single 24-hour cosine is a poor fit for the recorded pattern.
 
 ## Assumptions and limitations
 
@@ -295,26 +308,39 @@ in smartphone use.
 
 ## Implementation and provenance
 
-These formulas build on the author's
+The methods in this module build on Ceyhun Olcan's earlier
 [actrhythm library](https://github.com/ceyhunolcan/actrhythm).
-The related NHANES analysis code is available in
-[od-activity-rhythm](https://github.com/ceyhunolcan/od-activity-rhythm).
+That library implements interdaily stability (IS), intradaily
+variability (IV), relative amplitude (RA), the least active five
+hours (L5), the most active ten hours (M10), and related activity
+fragmentation measures.
 
-Applying these methods to NHANES does not mean that wearable MIMS
-activity values and smartphone ENMO are directly comparable. We
-also have not established whether iOS and Android recordings produce
-equivalent measurements.
+These methods were also applied in a
+[Research Square preprint](https://doi.org/10.21203/rs.3.rs-9830931/v1)
+examining olfactory dysfunction and rest-activity patterns in the
+2013-2014 National Health and Nutrition Examination Survey (NHANES).
+The [analysis code](https://github.com/ceyhunolcan/od-activity-rhythm)
+is available separately.
 
-Direct implementation keeps the few required formulas readable and avoids
-adding another activity data model or device reader. CosinorPy and pyActigraphy
-provide broader analyses; wrapping one would be reasonable if Forest later
-needs multiple cosinor components, diagnostic plots, or their wider feature
-sets. This module provides a single 24-hour component and the listed summaries.
+The NHANES study uses Monitor-Independent Movement Summary (MIMS)
+values derived from wrist accelerometry. This Forest module uses
+Euclidean Norm Minus One (ENMO) calculated from smartphone
+accelerometer data. Although the rhythm formulas are related,
+these activity measures are not directly interchangeable.
 
-The module remains self-contained within Oak. Its input preparation, metric
-functions, and runner can be separated along Oak's preprocess/analysis/runner
-boundaries later; ENMO preparation is independent of the gait pipeline's
-resampling and walking detection.
+The calculations are implemented directly in Oak rather than
+adding new runtime dependencies. The metric functions are small
+enough to test independently, while ActCR and CosinorPy provide
+external references for checking the numerical results.
+
+Data preparation, metric calculations, and output handling are
+kept in separate functions. They could be split into separate
+files later if needed. ENMO processing also remains independent
+of Oak's existing gait detection pipeline.
+
+The validation covers synthetic activity recordings. It does
+not establish clinical validity or measurement equivalence
+between iOS and Android devices.
 
 ## References
 

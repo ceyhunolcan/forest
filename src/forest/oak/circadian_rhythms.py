@@ -18,6 +18,16 @@ References:
     Van Someren EJW, et al. Chronobiol Int 16(4):505-518 (1999).
     Gonçalves BSB, et al. Sleep Sci 7(3):158-164 (2014).
     Cornelissen G. Theor Biol Med Model 11:16 (2014).
+
+Original author: Ceyhun Olcan.
+
+AI assistance:
+    OpenAI ChatGPT (GPT-6) and Anthropic Claude
+    (Opus 5 and Opus 5.5) assisted with
+    documentation and review.
+
+    The author reviewed and verified the implementation
+    and takes responsibility for the contributed work.
 """
 from __future__ import annotations
 
@@ -95,9 +105,10 @@ def interdaily_stability(values: np.ndarray, intervals_per_day: int) -> float:
 
 
 def intradaily_variability(values: np.ndarray) -> float:
-    """Measures how choppy activity is between neighboring intervals.
+    """Measures activity fragmentation across consecutive intervals.
 
-    Compares changes to overall variation and returns NaN if it can't be calculated.
+    Compares successive changes with overall activity variance.
+    Returns NaN if there are no valid pairs or no activity variance.
     """
     arr = as_float_array(values)
 
